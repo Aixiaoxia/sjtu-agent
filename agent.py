@@ -45,21 +45,60 @@ from anthropic import Anthropic
 # 进度指示器
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _ansi_supported() -> bool:
+    """检测当前终端是否支持 ANSI 转义序列（Windows 旧 cmd/PowerShell 不支持）。"""
+    if sys.platform != "win32":
+        return True
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        # 尝试启用 ENABLE_VIRTUAL_TERMINAL_PROCESSING (0x0004)
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_ulong()
+        kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+        kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+        return True
+    except Exception:
+        return False
+
+_ANSI_OK: bool | None = None  # lazy-init
+
 class Spinner:
-    """在终端同一行显示动态转圈动画，stop() 后清除该行。"""
+    """在终端同一行显示动态转圈动画，stop() 后清除该行。
+    在不支持 ANSI 的终端（Windows cmd）自动退化为静态文本行。
+    每次 start 前先打印一个空行，避免 \\r 覆盖上一行用户输入。
+    """
     _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
     def __init__(self, msg: str = ""):
         self._msg   = msg
         self._stop  = threading.Event()
         self._thread: threading.Thread | None = None
+        self._started = False
+
+    def _ansi(self) -> bool:
+        global _ANSI_OK
+        if _ANSI_OK is None:
+            _ANSI_OK = _ansi_supported()
+        return _ANSI_OK
 
     def start(self, msg: str = "") -> "Spinner":
         if msg:
             self._msg = msg
+        if self._started:
+            # 已在运行，只更新消息
+            return self
         self._stop.clear()
-        self._thread = threading.Thread(target=self._spin, daemon=True)
-        self._thread.start()
+        self._started = True
+        if self._ansi():
+            # 先换行，确保 \r 不回到用户输入行
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            self._thread = threading.Thread(target=self._spin, daemon=True)
+            self._thread.start()
+        else:
+            # Windows 无 ANSI：只打印一行文字
+            print(f"… {self._msg}")
         return self
 
     def update(self, msg: str) -> None:
@@ -67,10 +106,13 @@ class Spinner:
 
     def stop(self, final: str = "") -> None:
         self._stop.set()
+        self._started = False
         if self._thread:
             self._thread.join()
-        # 清除整行
-        sys.stdout.write("\r\033[K")
+            self._thread = None
+        if self._ansi():
+            # 清除整行（包括开头的换行占位）
+            sys.stdout.write("\r\033[K")
         if final:
             sys.stdout.write(final + "\n")
         sys.stdout.flush()
