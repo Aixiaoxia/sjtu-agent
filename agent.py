@@ -46,20 +46,16 @@ from anthropic import Anthropic
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _ansi_supported() -> bool:
-    """检测当前终端是否支持 ANSI 转义序列（Windows 旧 cmd/PowerShell 不支持）。"""
-    if sys.platform != "win32":
-        return True
-    try:
-        import ctypes
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        # 尝试启用 ENABLE_VIRTUAL_TERMINAL_PROCESSING (0x0004)
-        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
-        mode = ctypes.c_ulong()
-        kernel32.GetConsoleMode(handle, ctypes.byref(mode))
-        kernel32.SetConsoleMode(handle, mode.value | 0x0004)
-        return True
-    except Exception:
+    """
+    检测当前终端是否值得开启 \r 覆盖式 Spinner 动画。
+
+    Windows 上即使 ANSI 转义序列可用（Windows Terminal / VS Code 终端），
+    Spinner 线程的 \\r 写入仍会与 login.py / Playwright 的 print() 产生
+    竞争，导致输出闪烁和乱码。因此 Windows 一律禁用动画，降级为单行静态文字。
+    """
+    if sys.platform == "win32":
         return False
+    return True
 
 _ANSI_OK: bool | None = None  # lazy-init
 
