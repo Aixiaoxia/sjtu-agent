@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sjtu-agent"
+version = "0.1.0"
+description = "Deployable SJTU campus agent with CLI, Telegram bot, and MCP server entrypoints."
+readme = "README.md"
+requires-python = ">=3.10"
+dynamic = ["dependencies"]
+
+[project.scripts]
+sjtu-agent = "sjtu_agent.cli:main"
+
+[tool.setuptools]
+py-modules = [
+  "agent",
+  "daily_report",
+  "ddl_checker",
+  "login",
+  "mcp_server",
+  "remind_check",
+  "setup_config",
+  "telegram_bot",
+]
+
+[tool.setuptools.packages.find]
+include = ["sjtu_agent"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}

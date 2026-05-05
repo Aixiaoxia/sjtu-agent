@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SJTU Agent 校园助手展示页</title>
+    <meta
+        name="description"
+        content="一个面向非技术用户的 SJTU Agent 展示网站，介绍它如何帮助学生处理作业、课表、成绩、提醒和校园查询。"
+    >
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="site-header">
+        <a class="brand" href="#top" aria-label="返回首页">
+            <span class="brand-mark">SJTU</span>
+            <span class="brand-text">校园助手</span>
+        </a>
+        <nav class="site-nav" aria-label="主导航">
+            <a href="#abilities">功能</a>
+            <a href="#workflow">安装</a>
+            <a href="#faq">FAQ</a>
+        </nav>
+        <a class="header-cta" href="#abilities">看功能</a>
+    </header>
+
+    <main id="top">
+        <section class="hero reveal">
+            <div class="hero-copy">
+                <p class="eyebrow">SJTU Agent</p>
+                <h1>你是否觉得校园平台太多？</h1>
+                <p class="hero-lead">这是一个给交大学生用的校园助手。</p>
+                <p class="hero-tags">它把 DDL 管理、信息检索和校园门户放进同一个入口。</p>
+                <div class="hero-actions">
+                    <a class="primary-button" href="#abilities">了解功能</a>
+                    <a class="secondary-button" href="#workflow">查看安装</a>
+                </div>
+            </div>
+
+            <div class="hero-panel card">
+                <h3>为什么会需要它</h3>
+                <ul class="hero-points" aria-label="核心痛点">
+                    <li>
+                        <strong>平台太多</strong>
+                        <span>Canvas、教学系统、教务处、my.sjtu.edu.cn 分散在不同入口。</span>
+                    </li>
+                    <li>
+                        <strong>DDL 太多</strong>
+                        <span>不同课程、不同平台的截止时间要自己盯、自己排优先级。</span>
+                    </li>
+                    <li>
+                        <strong>消息太杂</strong>
+                        <span>通知、提醒、课表、实验安排混在一起，很难快速知道现在先做什么。</span>
+                    </li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="section reveal" id="real-scene">
+            <div class="section-shell card scene-layout">
+                <div class="scene-copy">
+                    <p class="eyebrow">真实场景</p>
+                    <h2>这就是它在 Telegram 里每天真实出现的样子。</h2>
+                    <p class="section-lead">不是宣传词，也不是假数据。它会先告诉你哪些平台已经接好，再把当晚最重要的 DDL、课程、实验和建议一起发出来。</p>
+                    <ul class="scene-points">
+                        <li>先说明已经配置的平台和当前可用能力。</li>
+                        <li>晚上自动发学习日报，不用自己去各个平台翻信息。</li>
+                        <li>最后直接告诉你今晚先做什么，而不是只把消息堆给你。</li>
+                    </ul>
+                    <p class="scene-note">下面这块内容按真实对话场景排版，信息内容来自实际截图。</p>
+                </div>
+
+                <div class="phone-stage" aria-label="真实 Telegram 对话场景">
+                    <div class="phone-frame">
+                        <div class="phone-notch" aria-hidden="true"></div>
+                        <div class="tg-screen">
+                            <div class="tg-topbar">
+                                <div class="tg-avatar">S</div>
+                                <div class="tg-topbar-meta">
+                                    <strong>SJTU_Agent</strong>
+                                    <span>bot</span>
+                                </div>
+                            </div>
+
+                            <div class="tg-chat">
+                                <article class="tg-bubble tg-bubble-intro">
+                                    <div class="tg-status-list">
+                                        <p>| 物理实验预约 (phycai) | ✅ 已配置 |</p>
+                                        <p>| 中国大学 MOOC | ✅ 已配置 |</p>
+                                        <p>| 水源社区 | ⚠️ 未配置 API Key (但有 Cookie) |</p>
+                                    </div>
+
+                                    <p class="tg-section-title">我可以帮你做的事：</p>
+                                    <ul class="tg-capability-list">
+                                        <li>🗂️ 查 DDL / 作业截止日期</li>
+                                        <li>📅 查课表（今天 / 明天 / 本周 / 下周）</li>
+                                        <li>📊 查成绩 / GPA</li>
+                                        <li>🔬 查物理实验课安排</li>
+                                        <li>📝 下载 / 提交作业</li>
+                                        <li>🚌 预约校车、办理校内事务</li>
+                                        <li>🔎 搜索水源社区、教务处、传承资料</li>
+                                        <li>⏰ 设置提醒事项</li>
+                                    </ul>
+
+                                    <p class="tg-closing">有什么需要尽管说！</p>
+                                    <time class="tg-time">19:30</time>
+                                </article>
+
+                                <article class="tg-bubble tg-bubble-report">
+                                    <p class="tg-report-title">📊 2026年05月04日（星期一）学习日报</p>
+
+                                    <div class="tg-report-block">
+                                        <p class="tg-section-title">📚 作业 DDL：</p>
+                                        <ul class="tg-report-list">
+                                            <li>数字电子技术 · 第九次作业 截止：2026-05-06 15:59（约 1 天后）</li>
+                                            <li>大学物理 · 第 7 周测试 截止：2026-05-10 23:30（约 6 天后）</li>
+                                        </ul>
+                                    </div>
+
+                                    <div class="tg-report-block">
+                                        <p class="tg-section-title">📅 今日课程：</p>
+                                        <ul class="tg-report-list">
+                                            <li>高等数学 II（上院 100）</li>
+                                            <li>电路实验（不排教室）</li>
+                                        </ul>
+                                    </div>
+
+                                    <div class="tg-report-block">
+                                        <p class="tg-section-title">🔬 下次实验：</p>
+                                        <p class="tg-inline-copy">测量刚体的转动惯量（3 学时） | 2026-05-11 18:00</p>
+                                        <p class="tg-inline-copy">地点：理科 3 号楼 204</p>
+                                    </div>
+
+                                    <div class="tg-report-block">
+                                        <p class="tg-section-title">📢 教务通知：</p>
+                                        <p class="tg-inline-copy">暂无新通知</p>
+                                    </div>
+
+                                    <div class="tg-report-block tg-report-block-highlight">
+                                        <p class="tg-section-title">💡 今晚建议：</p>
+                                        <p class="tg-inline-copy">今晚先把数字电子技术第九章作业完成，明天再抽时间复习大学物理第 7 周测试。</p>
+                                    </div>
+
+                                    <time class="tg-time">22:02</time>
+                                </article>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="section reveal" id="abilities">
+            <div class="section-shell card section-shell-feature">
+                <div class="section-heading">
+                    <h2>一个入口，处理最常见的校园任务。</h2>
+                    <p class="section-lead">先管 DDL。再查信息。需要时继续进入校园门户。</p>
+                </div>
+                <div class="feature-grid">
+                    <article class="feature-card">
+                        <span class="feature-index">A1</span>
+                        <h3>一站式 DDL 管理</h3>
+                        <p>汇总多个平台的作业和截止时间，排序、提醒、下载、读题可以连在一起做；如果最后 5 分钟还没交，会触发紧急保底提醒。</p>
+                        <div class="feature-example">
+                            <div class="feature-example-head">
+                                <span class="feature-example-dots" aria-hidden="true"></span>
+                                <span class="feature-example-label">问答演示</span>
+                            </div>
+                            <div class="feature-chat">
+                                <p class="feature-chat-user">用户：帮我看看这周哪些作业最急，再把大学物理题目下载下来。</p>
+                                <p class="feature-chat-agent">Agent：这周最急的是 1 项今晚截止的作业，另外还有 2 项本周内截止。我已经把大学物理相关材料保存到 assignments/ 目录，如果你愿意，我可以继续直接读出第一题内容。</p>
+                            </div>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <span class="feature-index">A2</span>
+                        <h3>信息检索</h3>
+                        <p>查课表、成绩、实验安排，也能搜教务处、水源和课程资料。</p>
+                        <div class="feature-example">
+                            <div class="feature-example-head">
+                                <span class="feature-example-dots" aria-hidden="true"></span>
+                                <span class="feature-example-label">问答演示</span>
+                            </div>
+                            <div class="feature-chat">
+                                <p class="feature-chat-user">用户：今天有什么课？顺便帮我查一下上学期 GPA。</p>
+                                <p class="feature-chat-agent">Agent：你今天上午有一节课，下午没有课。上学期成绩我也已经查到了，课程名、成绩、绩点和学分会一起列出来，最后会给你该学期的加权 GPA。</p>
+                            </div>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <span class="feature-index">A3</span>
+                        <h3>校园门户</h3>
+                        <p>需要进入 my.sjtu.edu.cn 办事时，可以继续往下走，而不是只停留在查询层面。</p>
+                        <div class="feature-example">
+                            <div class="feature-example-head">
+                                <span class="feature-example-dots" aria-hidden="true"></span>
+                                <span class="feature-example-label">问答演示</span>
+                            </div>
+                            <div class="feature-chat">
+                                <p class="feature-chat-user">用户：帮我去 my.sjtu.edu.cn 看看培养方案入口，继续找一下相关页面。</p>
+                                <p class="feature-chat-agent">Agent：我会先进入 my.sjtu.edu.cn，再帮你定位到最相关的服务入口。如果中间需要继续点开具体页面，我会沿着门户流程继续往下走，而不是只停在首页。</p>
+                            </div>
+                        </div>
+                    </article>
+                    <article class="feature-card">
+                        <span class="feature-index">A4</span>
+                        <h3>安装很简单</h3>
+                        <p>只需根据引导填写 jAccount 的账号密码，再设置大模型 API。</p>
+                        <div class="feature-example">
+                            <div class="feature-example-head">
+                                <span class="feature-example-dots" aria-hidden="true"></span>
+                                <span class="feature-example-label">首次使用</span>
+                            </div>
+                            <div class="feature-chat">
+                                <p class="feature-chat-user">用户：我是第一次用，需要先做什么？</p>
+                                <p class="feature-chat-agent">Agent：我会先检查配置状态，然后一步步引导你填写 jAccount 账号密码，再设置大模型 API。完成后就可以直接开始对话，不需要手动改文件。</p>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="section reveal" id="workflow">
+            <div class="workflow-layout section-shell card">
+                <div class="workflow-copy">
+                    <h2>安装很简单。</h2>
+                    <ol class="step-list">
+                        <li>
+                            根据引导填写 jAccount 的账号和密码。
+                        </li>
+                        <li>
+                            设置你要使用的大模型 API。
+                        </li>
+                        <li>
+                            完成后就可以直接开始对话。
+                        </li>
+                    </ol>
+                </div>
+
+                <aside class="report-card card">
+                    <p class="panel-label">日报 + 紧急保底</p>
+                    <div class="report-card-inner">
+                        <h3>Telegram</h3>
+                        <p>晚上自动汇总 DDL、课程、实验和通知；临近截止仍未提交时，会再发一条高优先级提醒。</p>
+                        <div class="report-points">
+                            <span>作业 DDL</span>
+                            <span>今日课程</span>
+                            <span>下次实验</span>
+                            <span>教务通知</span>
+                            <span>今晚建议</span>
+                            <span>DDL 紧急保底</span>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </section>
+
+        <section class="section reveal">
+            <div class="section-shell card">
+                <div class="section-heading">
+                    <h2>边界</h2>
+                </div>
+                <div class="safety-grid">
+                    <article class="safety-card">
+                        <h3>凭证保存在本地</h3>
+                        <p>账号信息写入本地文件，不默认上传到远端服务。</p>
+                    </article>
+                    <article class="safety-card">
+                        <h3>只做提醒，不代写代交</h3>
+                        <p>如果最后 5 分钟还没提交，只会发紧急提醒并尝试打开 Canvas 提交页，不会自动生成内容替你上交。</p>
+                    </article>
+                    <article class="safety-card">
+                        <h3>失败会讲清楚下一步</h3>
+                        <p>Cookie 过期或登录失效时，会直接提示下一步。</p>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="section reveal" id="faq">
+            <div class="section-shell card">
+                <div class="section-heading">
+                    <h2>常见问题</h2>
+                </div>
+                <div class="faq-grid">
+                    <details class="faq-item" open>
+                        <summary>我不会写代码，真的能用吗？</summary>
+                        <p>可以。这个项目的设计目标就是让你像聊天一样提需求，不要求你先懂命令行或接口。</p>
+                    </details>
+                    <details class="faq-item">
+                        <summary>它是只能查信息，还是能帮我做事？</summary>
+                        <p>两者都有。它既能查询，也能下载作业、读题、添加提醒、生成日报，以及在确认后执行作业提交等动作。</p>
+                    </details>
+                    <details class="faq-item">
+                        <summary>如果我只想用 Telegram，而不想开终端呢？</summary>
+                        <p>项目已经提供 Telegram Bot 接入，适合把日常对话和提醒都放到熟悉的聊天界面里。</p>
+                    </details>
+                    <details class="faq-item">
+                        <summary>为什么它比我自己开很多网页更省事？</summary>
+                        <p>因为它会替你决定去哪查、怎么查、结果怎么排优先级。你只保留“我要什么”，中间跳转都被折叠掉了。</p>
+                    </details>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="app.js" defer></script>
+</body>
+</html>

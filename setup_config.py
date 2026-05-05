@@ -8,15 +8,13 @@ setup_config.py — 自动从 Chrome 读取 cookie，生成 config.json
 
 import json
 import sys
-from pathlib import Path
+from sjtu_agent.paths import CONFIG_PATH
 
 try:
     import browser_cookie3
 except ImportError:
     print("[错误] 请先安装依赖：pip install browser-cookie3")
     sys.exit(1)
-
-CONFIG_PATH = Path(__file__).parent / "config.json"
 
 # ── 各平台需要的 cookie 名 ────────────────────────────────────────────────────
 

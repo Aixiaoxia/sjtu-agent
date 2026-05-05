@@ -22,11 +22,13 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
+from sjtu_agent.paths import CONFIG_PATH, SCHEDULE_CACHE_PATH as _SCHEDULE_CACHE_PATH
 
 try:
     from playwright.sync_api import sync_playwright
@@ -36,7 +38,6 @@ except ImportError:
 
 # ── 全局常量 ──────────────────────────────────────────────────────────────────
 
-CONFIG_PATH = Path(__file__).parent / "config.json"
 CST = timezone(timedelta(hours=8))
 NOW = datetime.now(CST)
 WEEKDAY_ZH = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
@@ -212,189 +213,67 @@ def fetch_canvas(cfg: dict) -> list[dict]:
                 "name": a["name"],
                 "due": a["due"],
                 "submitted": a["id"] in submitted_ids,
+                "course_id": cid,
+                "assignment_id": a["id"],
+                "url": f"{base}/courses/{cid}/assignments/{a['id']}",
             })
 
     return results
 
 
-# ── Platform 2: sjtu.aihaoke.net (Playwright) ────────────────────────────────
-# aihaoke 是纯 Vue SPA，数据通过私有封装的 HTTP 客户端加载到 Pinia store，
-# 无法直接用 requests 复现。用 Playwright 注入 cookie、加载页面、从 store 读数据。
-
-_AIHAOKE_JS = """
-() => {
-  const pinia = document.querySelector('#app')?.__vue_app__
-                 ?.config?.globalProperties?.$pinia;
-  if (!pinia) return null;
-  const state = pinia.state.value?.studentTaskStore?.studentTaskState;
-  if (!state) return null;
-  return state.menuData || [];
-}
-"""
-
-def _aihaoke_do_login(page, username: str = "", password: str = "") -> bool:
-    """
-    在 aihaoke 登录页完成 jAccount SSO。
-    若提供了 username/password，遇到 jAccount 表单时自动填写；
-    否则依赖已注入的 jaccount cookie 静默通过。
-    """
-    page.goto("https://sjtu.aihaoke.net/login", wait_until="networkidle", timeout=20_000)
-    # 点击"统一身份认证"Tab
-    page.locator(".login-type-tabs li").last.click()
-
-    # 等待跳转（可能直接到 student 页，也可能跳到 jAccount 表单）
-    try:
-        page.wait_for_url("**/jaccount**", timeout=10_000)
-    except Exception:
-        # 已经在 student 页，说明 cookie 静默通过了
-        if "student" in page.url:
-            return True
-        return False
-
-    # 需要手动填写 jAccount 表单
-    if not username:
-        print("[aihaoke] jAccount 需要重新登录但未提供账号密码，尝试 cookie 回退…")
-        return False
-
-    page.evaluate("if (typeof switchLoginType === 'function') switchLoginType('password')")
-    page.wait_for_timeout(400)
-    page.fill("#input-login-user", username)
-    page.fill("#input-login-pass", password)
-
-    for attempt in range(3):
-        cap = page.locator("#captcha-img")
-        if cap.count() and cap.is_visible():
-            code = _solve_captcha_phycai(cap.screenshot())
-            page.fill("#input-login-captcha", code)
-        page.click("#submit-password-button")
-        try:
-            page.wait_for_function(
-                "() => !location.href.includes('jaccount.sjtu.edu.cn') || "
-                "!!document.querySelector('.alert-danger, [class*=errorMsg]')",
-                timeout=12_000,
-            )
-        except Exception:
-            pass
-        if "jaccount.sjtu.edu.cn" not in page.url:
-            break
-        print(f"  [jAccount] 第 {attempt + 1} 次验证码错误，刷新重试…")
-        page.evaluate("if (typeof refreshCaptcha === 'function') refreshCaptcha()")
-        page.wait_for_timeout(700)
-    else:
-        print("[aihaoke] jAccount 验证码多次失败")
-        return False
-
-    try:
-        page.wait_for_url("**/sjtu.aihaoke.net/student/**", timeout=20_000)
-        page.wait_for_load_state("networkidle", timeout=10_000)
-    except Exception as e:
-        print(f"[aihaoke] 等待登录完成超时：{e}")
-        return False
-
-    return True
-
+# ── Platform 2: sjtu.aihaoke.net ─────────────────────────────────────────────
+# Bearer token 就存在 aihaoke_cookies["haoke-token"] 里，直接用 requests 调 API。
 
 def fetch_aihaoke(cfg: dict) -> list[dict]:
-    """用 Playwright 加载 aihaoke 课程任务页，从 Pinia store 读取数据。"""
-    if not HAS_PLAYWRIGHT:
-        print("[aihaoke] ⚠ 未安装 playwright，跳过（pip install playwright && playwright install chromium）")
-        return []
-
-    # 读取 .env 凭据
-    try:
-        from dotenv import load_dotenv  # type: ignore
-        load_dotenv()
-    except ImportError:
-        pass
-    username = os.environ.get("JACCOUNT_USERNAME", "").strip()
-    password = os.environ.get("JACCOUNT_PASSWORD", "").strip()
-    has_creds = bool(username and password)
+    """直接调用 aihaoke REST API 获取必做任务。"""
+    import uuid as _uuid
 
     raw_cookies = cfg.get("aihaoke_cookies", {})
-    jaccount_cookies = cfg.get("jaccount_cookies", {})
-    if not has_creds and not raw_cookies and not jaccount_cookies:
-        print("[aihaoke] ⚠ 未配置 aihaoke_cookies / jaccount_cookies 且无 .env 凭据，跳过")
+    token = raw_cookies.get("haoke-token", "").strip()
+    if not token:
+        print("[aihaoke] ⚠ 未配置 aihaoke_cookies[haoke-token]，跳过")
         return []
 
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
     results: list[dict] = []
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
-        ctx = browser.new_context()
-
-        # 注入现有 cookies（即使用账号密码，jaccount cookie 也可能帮助静默通过）
-        pw_cookies = [
-            {"name": k, "value": v, "domain": "sjtu.aihaoke.net", "path": "/"}
-            for k, v in raw_cookies.items()
-        ] + [
-            {"name": k, "value": v, "domain": "jaccount.sjtu.edu.cn", "path": "/"}
-            for k, v in jaccount_cookies.items()
-        ]
-        if pw_cookies:
-            ctx.add_cookies(pw_cookies)
-
-        page = ctx.new_page()
-        try:
-            ok = _aihaoke_do_login(
-                page,
-                username=username if has_creds else "",
-                password=password if has_creds else "",
-            )
-        except Exception as e:
-            print(f"[aihaoke] SSO 登录失败：{e}")
-            browser.close()
-            return []
-
-        if not ok:
-            print("[aihaoke] SSO 登录失败，跳过")
-            browser.close()
-            return []
-
-        if has_creds:
-            print("[aihaoke] ✓ jAccount 登录成功")
-            # 把新 cookies 写回 config.json
-            new_cookies = {
-                c["name"]: c["value"]
-                for c in ctx.cookies()
-                if "aihaoke.net" in c.get("domain", "")
+    for course in AIHAOKE_COURSES:
+        cid   = course["courseId"]
+        cname = course["name"]
+        page_no = 1
+        while True:
+            body = {
+                "classId": cid,
+                "orderType": 0,
+                "page": {"pageNo": page_no, "pageSize": 50},
+                "searchText": "",
+                "status": 0,
+                "taskTypes": [],
+                "requireFlag": 1,
+                "requestId": str(_uuid.uuid4()),
             }
-            if new_cookies:
-                cfg["aihaoke_cookies"] = new_cookies
-                CONFIG_PATH.write_text(
-                    json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
-                print("[aihaoke] ✓ 已更新 cookies")
-
-        for course in AIHAOKE_COURSES:
-            cid   = course["courseId"]
-            iid   = course["instanceId"]
-            cname = course["name"]
-            url   = f"https://sjtu.aihaoke.net/student/course/{cid}/task?instanceId={iid}&taskType=all-tasks"
-            print(f"  [aihaoke] 加载 {cname}…")
             try:
-                page.goto(url, wait_until="networkidle", timeout=30_000)
-                # 等 Pinia store 填充（最多 10s）
-                page.wait_for_function(
-                    "() => document.querySelector('#app')?.__vue_app__"
-                    "?.config?.globalProperties?.$pinia"
-                    "?.state?.value?.studentTaskStore?.studentTaskState?.menuData?.length > 0",
-                    timeout=10_000,
+                resp = requests.post(
+                    "https://sjtu.aihaoke.net/api/learn/task/listTask",
+                    json=body, headers=headers, timeout=15,
                 )
-                tasks = page.evaluate(_AIHAOKE_JS) or []
+                data = resp.json()
             except Exception as e:
-                print(f"  [aihaoke] {cname} 加载失败：{e}")
-                continue
+                print(f"  [aihaoke] {cname} 第{page_no}页请求失败：{e}")
+                break
 
-            now_ts = NOW.timestamp() * 1000  # JS Date 用毫秒，这里用字符串比较
-            for t in tasks:
-                # requireFlag=1 必做，myStatus=10 待提交，endTime 未过期
-                if t.get("requireFlag") != 1:
-                    continue
+            if data.get("code") == 401:
+                print("[aihaoke] ⚠ Token 已过期，请用 save_credentials 更新 aihaoke_cookies")
+                return results
+
+            rows = data.get("data", {}).get("rowList", [])
+            total_pages = data.get("data", {}).get("pageCount", 1)
+
+            for t in rows:
                 if t.get("myStatus") != 10:
-                    continue
-                # 只保留需要主动提交的任务类型：
-                #   51=作业  50=思考与练习  30=讨论  70=实验报告
-                #   10=阅读 / 20=视频 不需要主动提交，排除
-                if t.get("taskType") not in (30, 50, 51, 70):
                     continue
                 due = parse_dt(t.get("endTime", ""))
                 if not due or due < NOW:
@@ -407,8 +286,117 @@ def fetch_aihaoke(cfg: dict) -> list[dict]:
                     "submitted": False,
                 })
 
-        browser.close()
+            if page_no >= total_pages:
+                break
+            page_no += 1
+
     return results
+
+
+def refresh_aihaoke_cookies(cfg: dict) -> tuple[bool, str]:
+    """校验并在需要时刷新 aihaoke cookies，成功后写回 config.json。"""
+    import uuid as _uuid
+
+    if not HAS_PLAYWRIGHT:
+        return False, "未安装 playwright，请运行 pip install playwright && playwright install chromium"
+
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+    try:
+        from login import login_aihaoke as _login_aihaoke
+    except Exception as e:
+        return False, f"加载 aihaoke 登录器失败：{e}"
+
+    username = os.environ.get("JACCOUNT_USERNAME", "").strip()
+    password = os.environ.get("JACCOUNT_PASSWORD", "").strip()
+    has_creds = bool(username and password)
+    raw_cookies = cfg.get("aihaoke_cookies", {})
+
+    if not raw_cookies and not has_creds:
+        return False, "未配置 jAccount 凭据或 aihaoke_cookies"
+
+    def _token_is_valid(token: str) -> bool:
+        if not token:
+            return False
+        body = {
+            "classId": AIHAOKE_COURSES[0]["courseId"],
+            "orderType": 0,
+            "page": {"pageNo": 1, "pageSize": 1},
+            "searchText": "",
+            "status": 0,
+            "taskTypes": [],
+            "requireFlag": 1,
+            "requestId": str(_uuid.uuid4()),
+        }
+        try:
+            resp = requests.post(
+                "https://sjtu.aihaoke.net/api/learn/task/listTask",
+                json=body,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                timeout=15,
+            )
+            data = resp.json()
+        except Exception:
+            return False
+        return data.get("code") != 401
+
+    def _collect_cookies(ctx) -> dict[str, str]:
+        return {
+            c["name"]: c["value"]
+            for c in ctx.cookies()
+            if "aihaoke.net" in c.get("domain", "")
+        }
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        ctx = browser.new_context()
+        try:
+            if raw_cookies:
+                ctx.add_cookies([
+                    {"name": k, "value": v, "domain": "sjtu.aihaoke.net", "path": "/"}
+                    for k, v in raw_cookies.items()
+                ])
+                page = ctx.new_page()
+                try:
+                    page.goto("https://sjtu.aihaoke.net/student", wait_until="networkidle", timeout=12_000)
+                except Exception:
+                    pass
+                finally:
+                    page.close()
+
+                current_cookies = _collect_cookies(ctx)
+                if _token_is_valid(current_cookies.get("haoke-token", "")):
+                    cfg["aihaoke_cookies"] = current_cookies
+                    CONFIG_PATH.write_text(
+                        json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+                    return True, ""
+
+            if not has_creds:
+                return False, "需要 jAccount 凭据，请先用 save_credentials 配置"
+
+            ok = _login_aihaoke(ctx, username, password)
+            if not ok:
+                return False, "aihaoke 登录失败"
+
+            new_cookies = _collect_cookies(ctx)
+            if not _token_is_valid(new_cookies.get("haoke-token", "")):
+                return False, "aihaoke 登录后未获取到有效 token"
+
+            cfg["aihaoke_cookies"] = new_cookies
+            CONFIG_PATH.write_text(
+                json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            return True, ""
+        finally:
+            browser.close()
 
 
 # ── Platform 3: phycai.sjtu.edu.cn ───────────────────────────────────────────
@@ -863,8 +851,31 @@ def _parse_icourse_rpc(result: dict, cname: str) -> list[dict]:
     results = []
     # result 可能是 {"mocTermDto": {...}, ...} 或直接就是 mocTermDto
     moc = result.get("mocTermDto") or result
+    now = datetime.now(CST)  # 使用实时时间，避免模块导入时 NOW 冻结的问题
 
-    # 从章节结构中查找测验单元 (contentType=5)
+    # 从章节的 quizs 列表中查找测试（实际数据结构）
+    for chapter in moc.get("chapters", []):
+        for quiz in chapter.get("quizs") or []:
+            test = quiz.get("test") or {}
+            score = test.get("userScore") or test.get("testScore")
+            if score is not None and float(score) > 0:
+                continue
+            deadline_ms = test.get("deadline")
+            if not deadline_ms:
+                continue
+            due = datetime.fromtimestamp(int(deadline_ms) / 1000, tz=CST)
+            if due < now:
+                continue
+            used = test.get("usedTryCount") or 0
+            results.append({
+                "platform": "icourse163",
+                "course": cname,
+                "name": quiz.get("name") or "未知测试",
+                "due": due,
+                "submitted": int(used) > 0,
+            })
+
+    # 从章节结构中查找测验单元 (contentType=5)（兼容旧格式）
     for chapter in moc.get("chapters", []):
         for lesson in chapter.get("lessons", []):
             for unit in lesson.get("units", []):
@@ -877,7 +888,7 @@ def _parse_icourse_rpc(result: dict, cname: str) -> list[dict]:
                 if not deadline_ms:
                     continue
                 due = datetime.fromtimestamp(int(deadline_ms) / 1000, tz=CST)
-                if due < NOW:
+                if due < now:
                     continue
                 results.append({
                     "platform": "icourse163",
@@ -896,7 +907,7 @@ def _parse_icourse_rpc(result: dict, cname: str) -> list[dict]:
         if not deadline_ms:
             continue
         due = datetime.fromtimestamp(int(deadline_ms) / 1000, tz=CST)
-        if due < NOW:
+        if due < now:
             continue
         results.append({
             "platform": "icourse163",
@@ -984,6 +995,1029 @@ def print_report(ddl_items: list[dict], lab: dict | None) -> None:
 
 
 # ── 主入口 ────────────────────────────────────────────────────────────────────
+
+# ── Assignment Download ───────────────────────────────────────────────────────
+
+def _safe_fname(s: str) -> str:
+    """将字符串转换为合法的文件/目录名。"""
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', s).strip("._") or "unnamed"
+
+
+def _matches_assignment_download_filters(
+    course_name: str,
+    assignment_name: str,
+    due: datetime | None,
+    *,
+    course_filter: str = "",
+    assignment_filter: str = "",
+    due_within_days: int | None = 7,
+) -> bool:
+    if course_filter and course_filter.lower() not in course_name.lower():
+        return False
+    if assignment_filter and assignment_filter.lower() not in assignment_name.lower():
+        return False
+    if due is not None and due_within_days is not None and due_within_days >= 0:
+        now = datetime.now(CST)
+        if due > now + timedelta(days=due_within_days):
+            return False
+    return True
+
+
+def _download_canvas_assignment(
+    session: requests.Session,
+    base: str,
+    course_id: int,
+    assignment_id: int,
+    course_name: str,
+    assignment_name: str,
+    out: "Path",
+) -> list[str]:
+    """下载单个 Canvas 作业的题目说明和附件，返回已保存的文件路径列表。"""
+    dest = out / _safe_fname(course_name) / _safe_fname(assignment_name)
+    dest.mkdir(parents=True, exist_ok=True)
+    saved: list[str] = []
+
+    # 获取作业详情
+    try:
+        r = session.get(
+            f"{base}/api/v1/courses/{course_id}/assignments/{assignment_id}",
+            params={"include[]": "attachments"},
+            timeout=15,
+        )
+        r.raise_for_status()
+        detail = r.json()
+    except Exception as e:
+        print(f"    ✗ 获取详情失败：{e}")
+        return []
+
+    desc = detail.get("description") or ""
+
+    # 1. 保存题目说明 HTML（保留原始内容用于备查）
+    if desc:
+        html_path = dest / "description.html"
+        html_path.write_text(
+            f"<meta charset='utf-8'><h1>{assignment_name}</h1>\n{desc}",
+            encoding="utf-8",
+        )
+        saved.append(str(html_path))
+
+    # 2. 从 description 提取 Canvas 文件引用
+    #    SJTU Canvas 使用两种格式：
+    #      a) data-api-endpoint="https://.../api/v1/courses/.../files/<id>"  ← 优先
+    #      b) href="https://.../courses/.../files/<id>?verifier=...&wrap=1"
+    #      c) href="https://.../files/<id>/download?..."                     ← 旧格式
+    file_api_urls: set[str] = set()
+
+    # 格式 a: data-api-endpoint 属性（最可靠）
+    for m in re.finditer(r'data-api-endpoint="([^"]+/api/v1/[^"/]+/files/\d+)"', desc):
+        file_api_urls.add(m.group(1))
+
+    # 格式 b: courses/.../files/<id>?...
+    for m in re.finditer(r'href="([^"]*?/courses/\d+/files/(\d+)\?[^"]*)"', desc):
+        file_api_urls.add(f"{base}/api/v1/files/{m.group(2)}")
+
+    # 格式 c: /files/<id>/download
+    for m in re.finditer(r'href="([^"]*?/files/(\d+)/download[^"]*)"', desc):
+        file_api_urls.add(f"{base}/api/v1/files/{m.group(2)}")
+
+    # 3. 作业级别 attachments（部分 Canvas 实例支持）
+    for att in detail.get("attachments") or []:
+        aid = att.get("id")
+        if aid:
+            file_api_urls.add(f"{base}/api/v1/files/{aid}")
+
+    # 4. 对每个文件调用 Files API 拿真实下载 URL，然后下载
+    for api_url in file_api_urls:
+        try:
+            meta_r = session.get(api_url, timeout=10)
+            meta_r.raise_for_status()
+            meta = meta_r.json()
+        except Exception as e:
+            print(f"    ✗ 获取文件元信息失败 {api_url}：{e}")
+            continue
+
+        download_url = meta.get("url")
+        fname = meta.get("filename") or meta.get("display_name") or "attachment"
+        if not download_url:
+            continue
+
+        fpath = dest / _safe_fname(fname)
+        try:
+            fr = session.get(download_url, timeout=60, stream=True, allow_redirects=True)
+            fr.raise_for_status()
+            # 如果响应头里有更准确的文件名，用它
+            cd = fr.headers.get("Content-Disposition", "")
+            m = re.search(r"filename\*?=(?:UTF-8'')?\"?([^\";\r\n]+)\"?", cd, re.I)
+            if m:
+                fname = urllib.parse.unquote(m.group(1).strip())
+                fpath = dest / _safe_fname(fname)
+            with open(fpath, "wb") as f:
+                for chunk in fr.iter_content(8192):
+                    f.write(chunk)
+            saved.append(str(fpath))
+            print(f"    ✓ {fname} ({meta.get('size', 0) // 1024} KB)")
+        except Exception as e:
+            print(f"    ✗ 下载 {fname} 失败：{e}")
+
+    return saved
+
+
+def download_canvas_assignments(
+    cfg: dict,
+    output_dir: str = "./assignments",
+    course_filter: str = "",
+    assignment_filter: str = "",
+    due_within_days: int | None = 7,
+) -> list[dict]:
+    """下载符合过滤条件的 Canvas 作业题目说明和附件，返回下载结果列表。"""
+    token = cfg.get("canvas_token", "").strip()
+    base  = cfg.get("canvas_base_url", "https://oc.sjtu.edu.cn").rstrip("/")
+    if not token or token.startswith("YOUR_"):
+        return [{"error": "未配置 canvas_token"}]
+
+    session = requests.Session()
+    session.headers["Authorization"] = f"Bearer {token}"
+    out = Path(output_dir)
+
+    # 获取在修课程
+    courses: list[dict] = []
+    url: str | None = f"{base}/api/v1/courses"
+    params: dict = {"enrollment_state": "active", "per_page": 100}
+    while url:
+        r = session.get(url, params=params, timeout=15)
+        r.raise_for_status()
+        courses.extend(r.json())
+        url = r.links.get("next", {}).get("url")
+        params = {}
+
+    results: list[dict] = []
+    for course in courses:
+        cid   = course["id"]
+        cname = course.get("name", f"课程{cid}")
+
+        asgn_url: str | None = f"{base}/api/v1/courses/{cid}/assignments"
+        asgn_params: dict = {"bucket": "upcoming", "per_page": 50, "order_by": "due_at"}
+        while asgn_url:
+            try:
+                r = session.get(asgn_url, params=asgn_params, timeout=15)
+                r.raise_for_status()
+            except Exception as e:
+                print(f"[Canvas] {cname} 获取作业列表失败：{e}")
+                break
+            for a in r.json():
+                if not a.get("submission_types"):
+                    continue
+                due = parse_dt(a.get("due_at", ""))
+                if not due or due < NOW:
+                    continue
+                assignment_name = a.get("name", "未知作业")
+                if not _matches_assignment_download_filters(
+                    cname,
+                    assignment_name,
+                    due,
+                    course_filter=course_filter,
+                    assignment_filter=assignment_filter,
+                    due_within_days=due_within_days,
+                ):
+                    continue
+                print(f"[Canvas] ↓ {cname} / {assignment_name}")
+                files = _download_canvas_assignment(
+                    session, base, cid, a["id"], cname, assignment_name, out
+                )
+                results.append({
+                    "platform": "Canvas",
+                    "course": cname,
+                    "name": assignment_name,
+                    "due": due.isoformat(),
+                    "files": files,
+                    "output_dir": str(out / _safe_fname(cname) / _safe_fname(assignment_name)),
+                })
+            asgn_url = r.links.get("next", {}).get("url")
+            asgn_params = {}
+
+    return results
+
+
+# ── aihaoke JS（含 id 字段，供下载使用）──────────────────────────────────────
+
+_AIHAOKE_TASK_FULL_JS = """
+() => {
+  const pinia = document.querySelector('#app')?.__vue_app__
+                 ?.config?.globalProperties?.$pinia;
+  if (!pinia) return null;
+  const state = pinia.state.value?.studentTaskStore?.studentTaskState;
+  if (!state) return null;
+  return (state.menuData || []).map(t => ({
+    id:          t.id ?? t.taskId ?? t.homeworkId ?? null,
+    taskName:    t.taskName,
+    taskType:    t.taskType,
+    requireFlag: t.requireFlag,
+    myStatus:    t.myStatus,
+    endTime:     t.endTime,
+  }));
+}
+"""
+
+_AIHAOKE_PAGE_FILES_JS = r"""
+() => {
+  const links = Array.from(document.querySelectorAll('a[href]'));
+  return links
+    .map(a => ({ href: a.href, text: a.textContent.trim() }))
+    .filter(l => l.href && (
+      l.href.includes('/download') ||
+      l.href.includes('attachment') ||
+      /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|zip|rar|7z|png|jpg|mp4)(\?|$)/i.test(l.href)
+    ));
+}
+"""
+
+
+def download_aihaoke_assignments(
+    cfg: dict,
+    output_dir: str = "./assignments",
+    course_filter: str = "",
+    assignment_filter: str = "",
+    due_within_days: int | None = 7,
+) -> list[dict]:
+    """用 Playwright 登录 aihaoke，下载符合过滤条件的作业说明页面和附件。"""
+    if not HAS_PLAYWRIGHT:
+        return [{"error": "未安装 playwright，请运行 pip install playwright && playwright install chromium"}]
+
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+    ok, error = refresh_aihaoke_cookies(cfg)
+    if not ok:
+        return [{"error": error}]
+
+    raw_cookies = cfg.get("aihaoke_cookies", {})
+
+    out = Path(output_dir)
+    results: list[dict] = []
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        ctx = browser.new_context(
+            accept_downloads=True,
+        )
+        pw_cookies = [
+            {"name": k, "value": v, "domain": "sjtu.aihaoke.net", "path": "/"}
+            for k, v in raw_cookies.items()
+        ]
+        if pw_cookies:
+            ctx.add_cookies(pw_cookies)
+
+        page = ctx.new_page()
+
+        for course in AIHAOKE_COURSES:
+            cid   = course["courseId"]
+            iid   = course["instanceId"]
+            cname = course["name"]
+
+            list_url = (
+                f"https://sjtu.aihaoke.net/student/course/{cid}/task"
+                f"?instanceId={iid}&taskType=all-tasks"
+            )
+            try:
+                page.goto(list_url, wait_until="networkidle", timeout=30_000)
+                page.wait_for_function(
+                    "() => document.querySelector('#app')?.__vue_app__"
+                    "?.config?.globalProperties?.$pinia"
+                    "?.state?.value?.studentTaskStore?.studentTaskState?.menuData?.length > 0",
+                    timeout=10_000,
+                )
+                tasks = page.evaluate(_AIHAOKE_TASK_FULL_JS) or []
+            except Exception as e:
+                print(f"  [aihaoke] {cname} 加载失败：{e}")
+                continue
+
+            for t in tasks:
+                if t.get("requireFlag") != 1:
+                    continue
+                if t.get("myStatus") != 10:
+                    continue
+                if t.get("taskType") not in (30, 50, 51, 70):
+                    continue
+                due = parse_dt(t.get("endTime", ""))
+                if not due or due < NOW:
+                    continue
+
+                task_id   = t.get("id")
+                task_name = (t.get("taskName") or "未知任务").strip()
+                if not _matches_assignment_download_filters(
+                    cname,
+                    task_name,
+                    due,
+                    course_filter=course_filter,
+                    assignment_filter=assignment_filter,
+                    due_within_days=due_within_days,
+                ):
+                    continue
+                dest = out / _safe_fname(cname) / _safe_fname(task_name)
+                dest.mkdir(parents=True, exist_ok=True)
+                saved: list[str] = []
+
+                # 尝试导航到任务详情页
+                detail_url = None
+                if task_id:
+                    detail_url = (
+                        f"https://sjtu.aihaoke.net/student/course/{cid}"
+                        f"/task/{task_id}?instanceId={iid}"
+                    )
+
+                print(f"[aihaoke] ↓ {cname} / {task_name}")
+                try:
+                    nav_url = detail_url or list_url
+                    page.goto(nav_url, wait_until="networkidle", timeout=20_000)
+
+                    # 保存页面截图作为"说明"备用
+                    ss_path = dest / "screenshot.png"
+                    page.screenshot(path=str(ss_path), full_page=True)
+                    saved.append(str(ss_path))
+                    print(f"    ✓ screenshot.png")
+
+                    # 提取页面中的下载链接并下载
+                    file_links = page.evaluate(_AIHAOKE_PAGE_FILES_JS) or []
+                    for lnk in file_links:
+                        href = lnk.get("href", "")
+                        if not href or href.startswith("blob:"):
+                            continue
+                        try:
+                            with page.expect_download(timeout=30_000) as dl_info:
+                                page.evaluate(f"window.open('{href}', '_blank')")
+                            download = dl_info.value
+                            fname = download.suggested_filename or href.split("/")[-1].split("?")[0]
+                            fpath = dest / _safe_fname(fname)
+                            download.save_as(str(fpath))
+                            saved.append(str(fpath))
+                            print(f"    ✓ {fname}")
+                        except Exception:
+                            pass
+                except Exception as e:
+                    print(f"    ✗ 无法获取详情：{e}")
+
+                results.append({
+                    "platform": "aihaoke",
+                    "course": cname,
+                    "name": task_name,
+                    "due": due.isoformat(),
+                    "files": saved,
+                    "output_dir": str(dest),
+                })
+
+        browser.close()
+    return results
+
+
+def download_assignments(
+    cfg: dict,
+    output_dir: str = "./assignments",
+    skip_canvas: bool = False,
+    skip_aihaoke: bool = False,
+    course_filter: str = "",
+    assignment_filter: str = "",
+    due_within_days: int | None = 7,
+) -> list[dict]:
+    """下载所有平台内符合过滤条件的近期作业材料。"""
+    results: list[dict] = []
+    if not skip_canvas:
+        print("[*] 下载 Canvas 作业材料…")
+        results.extend(
+            download_canvas_assignments(
+                cfg,
+                output_dir,
+                course_filter,
+                assignment_filter,
+                due_within_days,
+            )
+        )
+    if not skip_aihaoke:
+        print("[*] 下载 aihaoke 作业材料…")
+        results.extend(
+            download_aihaoke_assignments(
+                cfg,
+                output_dir,
+                course_filter,
+                assignment_filter,
+                due_within_days,
+            )
+        )
+    return results
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 校园内容搜索
+# ══════════════════════════════════════════════════════════════════════════════
+
+# jwc RSS feeds（教务处通知公告）
+_JWC_RSS_FEEDS = [
+    # 通知公告
+    "https://jwc.sjtu.edu.cn/system/resource/code/rss/rssfeed.jsp"
+    "?type=list&treeid=1292&viewid=1011878&mode=10&dbname=vsb"
+    "&owner=1707467176&ownername=jwc2021&contentid=1015253&number=50&httproot=",
+]
+
+
+def _search_jwc(query: str, max_results: int = 8) -> list[dict]:
+    """从教务处 RSS 按关键词搜索通知公告。"""
+    import xml.etree.ElementTree as ET
+
+    items: list[dict] = []
+    for url in _JWC_RSS_FEEDS:
+        try:
+            r = requests.get(url, timeout=10,
+                             headers={"User-Agent": "Mozilla/5.0"})
+            r.raise_for_status()
+            root = ET.fromstring(r.content)
+            for item in root.findall(".//item"):
+                title = (item.findtext("title") or "").strip()
+                desc  = (item.findtext("description") or "").strip()
+                link  = (item.findtext("link") or "").strip()
+                date  = (item.findtext("pubDate") or "").strip()
+                items.append({"title": title, "summary": desc[:300], "url": link, "date": date})
+        except Exception as e:
+            print(f"[jwc] RSS 获取失败：{e}")
+
+    if not items:
+        return [{"error": "无法获取教务处 RSS，网络不通或地址变更"}]
+
+    q = query.lower()
+    matched = [i for i in items
+               if q in i["title"].lower() or q in i["summary"].lower()]
+    # 没有关键词匹配时返回最新几条
+    if not matched:
+        return items[:max_results]
+    return matched[:max_results]
+
+
+def _search_shuiyuan(cfg: dict, query: str, max_results: int = 5) -> list[dict]:
+    """搜索水源社区：优先用 User API Key，回退到 session cookie。"""
+    api_key   = cfg.get("shuiyuan_user_api_key", "").strip()
+    client_id = cfg.get("shuiyuan_user_api_client_id", "").strip()
+    session   = cfg.get("shuiyuan_cookies", {})
+
+    if not api_key and not session:
+        return [{"error": "水源社区未配置，请对 Agent 说「配置水源」完成登录"}]
+
+    if api_key:
+        req_kwargs = {
+            "headers": {
+                "User-Api-Key":       api_key,
+                "User-Api-Client-Id": client_id,
+                "Accept":             "application/json",
+            }
+        }
+    else:
+        req_kwargs = {
+            "cookies": session,
+            "headers": {"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+        }
+
+    try:
+        r = requests.get(
+            "https://shuiyuan.sjtu.edu.cn/search.json",
+            params={"q": query, "page": 1},
+            timeout=10,
+            **req_kwargs,
+        )
+        if r.status_code in (401, 403) or "login" in r.url:
+            return [{"error": "水源社区凭证已过期，请对 Agent 说「配置水源」重新授权"}]
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        return [{"error": f"水源社区搜索失败：{e}"}]
+
+    topics   = data.get("topics") or []
+    posts    = data.get("posts") or []
+    post_map = {p.get("topic_id"): p for p in posts}
+    results: list[dict] = []
+    for t in topics[:max_results]:
+        tid  = t.get("id")
+        slug = t.get("slug", "")
+        post = post_map.get(tid, {})
+        results.append({
+            "title":    t.get("fancy_title") or t.get("title", ""),
+            "url":      f"https://shuiyuan.sjtu.edu.cn/t/{slug}/{tid}",
+            "excerpt":  post.get("blurb", ""),
+            "replies":  t.get("posts_count", 0),
+            "views":    t.get("views", 0),
+            "category": t.get("category_id"),
+        })
+    if not results:
+        return [{"message": f"水源社区没有找到关于「{query}」的帖子"}]
+    return results
+
+
+_DYWEB_API = "https://api.share.dyweb.sjtu.cn/api/v1"
+_DYWEB_MATERIAL_TYPES = {1: "课件", 2: "答案", 3: "实验报告", 4: "参考书", 5: "试卷", 6: "其他"}
+
+
+def _dyweb_refresh_token(cfg: dict) -> str:
+    """通过 Playwright 点击登录按钮刷新 sjtu_token，保存到 config，返回新 token。"""
+    if not HAS_PLAYWRIGHT:
+        return ""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+    jaccount_cookies = cfg.get("jaccount_cookies", {})
+    if not jaccount_cookies:
+        return ""
+
+    import time
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        ctx = browser.new_context()
+        ctx.add_cookies([
+            {"name": k, "value": v, "domain": "jaccount.sjtu.edu.cn", "path": "/"}
+            for k, v in jaccount_cookies.items()
+        ])
+        page = ctx.new_page()
+        try:
+            page.goto("https://share.dyweb.sjtu.cn/", wait_until="networkidle", timeout=30_000)
+            time.sleep(1)
+            btn = page.locator("text=使用 jAccount 登录")
+            if btn.count() > 0:
+                btn.first.click()
+                time.sleep(3)
+                page.wait_for_load_state("networkidle", timeout=15_000)
+            token = next(
+                (c["value"] for c in ctx.cookies(["https://share.dyweb.sjtu.cn"])
+                 if c["name"] == "sjtu_token"),
+                ""
+            )
+        except Exception as e:
+            print(f"[dyweb] 刷新 token 失败：{e}")
+            token = ""
+        finally:
+            browser.close()
+
+    if token:
+        cfg["dyweb_token"] = token
+        CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        print("[dyweb] ✓ token 已更新")
+    return token
+
+
+def _dyweb_request(cfg: dict, method: str, path: str, **kwargs) -> dict | None:
+    """带 token 自动刷新的 API 请求，返回 JSON data 或 None。"""
+    token = cfg.get("dyweb_token", "")
+    if not token:
+        token = _dyweb_refresh_token(cfg)
+        if not token:
+            return None
+
+    def _call(tok: str):
+        cookies = {"sjtu_token": tok}
+        headers = {"User-Agent": "Mozilla/5.0",
+                   "Origin": "https://share.dyweb.sjtu.cn",
+                   "Referer": "https://share.dyweb.sjtu.cn/"}
+        if method == "GET":
+            return requests.get(f"{_DYWEB_API}{path}", cookies=cookies, headers=headers, timeout=10, **kwargs)
+        return requests.post(f"{_DYWEB_API}{path}", cookies=cookies, headers=headers, timeout=10, **kwargs)
+
+    r = _call(token)
+    if r.status_code == 401:
+        # token 过期，刷新一次重试
+        token = _dyweb_refresh_token(cfg)
+        if not token:
+            return None
+        r = _call(token)
+
+    if r.status_code != 200:
+        return None
+    data = r.json()
+    return data.get("data")
+
+
+def _search_dyweb(cfg: dict, query: str, max_results: int = 6,
+                  material_type: str = "") -> list[dict]:
+    """在传承·交大搜索资料，返回课程+资料列表。"""
+    # 搜索课程
+    courses_data = _dyweb_request(cfg, "POST", "/course/search",
+                                  json={"keyword": query, "page": 1, "page_size": max_results})
+    if courses_data is None:
+        return [{"error": "传承·交大 API 不可用，请检查 jAccount 配置"}]
+
+    courses = courses_data if isinstance(courses_data, list) else []
+    if not courses:
+        return [{"message": f"传承·交大没有找到与「{query}」相关的课程"}]
+
+    # 反查材料类型 id
+    type_id = None
+    for tid, name in _DYWEB_MATERIAL_TYPES.items():
+        if material_type and material_type in name:
+            type_id = tid
+            break
+
+    results: list[dict] = []
+    for course in courses[:max_results]:
+        cid   = course.get("id")
+        cname = course.get("name", "")
+        ccode = course.get("code", "")
+        org   = (course.get("organization") or {}).get("name", "")
+
+        # 获取该课程的资料
+        params: dict = {"course_id": cid}
+        if type_id:
+            params["material_type_id"] = type_id
+        mats_data = _dyweb_request(cfg, "GET", "/material", params=params)
+        if mats_data is None:
+            continue
+
+        # 合并 unarchived + archived
+        unarchived = mats_data.get("unarchived") or [] if isinstance(mats_data, dict) else []
+        archived   = mats_data.get("archived") or [] if isinstance(mats_data, dict) else []
+        all_mats   = unarchived + archived
+
+        # 过滤并排序（按下载量）
+        if query:
+            q = query.lower()
+            filtered = [m for m in all_mats if q in (m.get("name") or "").lower()
+                        or q in (m.get("description") or "").lower()]
+            if not filtered:
+                filtered = all_mats  # 关键词在课程名命中，返回全部材料
+        else:
+            filtered = all_mats
+
+        filtered.sort(key=lambda m: m.get("download_count") or 0, reverse=True)
+
+        materials = []
+        for m in filtered[:5]:
+            mtype = _DYWEB_MATERIAL_TYPES.get(m.get("material_type_id", 0), "其他")
+            materials.append({
+                "name":      m.get("name", ""),
+                "type":      mtype,
+                "ext":       m.get("ext", ""),
+                "downloads": m.get("download_count", 0),
+                "points":    m.get("point", 0),
+                "url":       f"https://share.dyweb.sjtu.cn/course/{cid}",
+            })
+
+        results.append({
+            "course":    cname,
+            "code":      ccode,
+            "org":       org,
+            "course_url": f"https://share.dyweb.sjtu.cn/course/{cid}",
+            "materials": materials,
+        })
+
+    if not results:
+        return [{"message": f"传承·交大没有找到与「{query}」相关的资料"}]
+    return results
+
+
+def search_campus(
+    cfg: dict,
+    query: str,
+    sites: list[str] | None = None,
+    max_results: int = 6,
+) -> dict:
+    """在交大校园相关网站搜索内容。
+
+    sites 可选值：'jwc'（教务处通知）、'shuiyuan'（水源社区）、'dyweb'（传承·交大资料）
+    默认三者都搜。
+    """
+    if sites is None:
+        sites = ["jwc", "shuiyuan", "dyweb"]
+    out: dict = {}
+    if "jwc" in sites:
+        print(f"[搜索] 教务处通知：{query}…")
+        out["jwc"] = _search_jwc(query, max_results)
+    if "shuiyuan" in sites:
+        print(f"[搜索] 水源社区：{query}…")
+        out["shuiyuan"] = _search_shuiyuan(cfg, query, max_results)
+    if "dyweb" in sites:
+        print(f"[搜索] 传承·交大：{query}…")
+        out["dyweb"] = _search_dyweb(cfg, query, max_results)
+    return out
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 课表（JWXT 教学信息服务网）
+# ══════════════════════════════════════════════════════════════════════════════
+
+# 每节课的开始/结束时间（参考 CourseBlock / SJTU 作息）
+_SLOT_TIMES: list[tuple[str, str]] = [
+    ("8:00",  "8:45"),   # 第 1 节
+    ("8:55",  "9:40"),   # 第 2 节
+    ("10:00", "10:45"),  # 第 3 节
+    ("10:55", "11:40"),  # 第 4 节
+    ("12:00", "12:45"),  # 第 5 节
+    ("12:55", "13:40"),  # 第 6 节
+    ("14:00", "14:45"),  # 第 7 节
+    ("14:55", "15:40"),  # 第 8 节
+    ("16:00", "16:45"),  # 第 9 节
+    ("16:55", "17:40"),  # 第 10 节
+    ("18:00", "18:45"),  # 第 11 节
+    ("18:55", "19:40"),  # 第 12 节
+    ("20:00", "20:45"),  # 第 13 节
+    ("20:55", "21:40"),  # 第 14 节
+]
+
+_WEEKDAY_CN = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+
+
+def _parse_week_set(zcd: str) -> set[int]:
+    """解析周次字符串（如 '1-16周' '1,3,5-10周(单)'）为周次集合。"""
+    weeks: set[int] = set()
+    for part in zcd.split(","):
+        part = part.strip()
+        step = 1
+        if "(单)" in part:
+            step = 2
+            part = part.replace("(单)", "")
+        if "(双)" in part:
+            step = 2
+            part = part.replace("(双)", "")
+        part = part.replace("周", "").strip()
+        if not part:
+            continue
+        if "-" in part:
+            a, b = part.split("-", 1)
+            for w in range(int(a), int(b) + 1, step):
+                weeks.add(w)
+        elif part.isdigit():
+            weeks.add(int(part))
+    return weeks
+
+
+def _parse_jcs(jcs: str) -> tuple[int, int]:
+    """'3-4' → (3, 4)；单节 '5' → (5, 5)"""
+    parts = jcs.split("-")
+    start = int(parts[0])
+    end = int(parts[-1])
+    return start, end
+
+
+def _get_jwxt_cookies(cfg: dict) -> dict | None:
+    """获取 JWXT session cookies，优先复用已保存的，失效时走 Playwright 刷新。"""
+    saved = cfg.get("jwxt_cookies", {})
+    if saved:
+        try:
+            r = requests.post(
+                "https://i.sjtu.edu.cn/kbcx/xskbcx_cxXsKb.html",
+                data={"xnm": "2025", "xqm": "12"},
+                cookies=saved,
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=10,
+            )
+            if r.status_code == 200 and "kbList" in r.text:
+                return saved
+        except Exception:
+            pass
+        print("[jwxt] session 已过期，重新登录…")
+
+    if not HAS_PLAYWRIGHT:
+        return None
+    jaccount_cookies = cfg.get("jaccount_cookies", {})
+    if not jaccount_cookies:
+        return None
+
+    import time
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        ctx = browser.new_context()
+        ctx.add_cookies([
+            {"name": k, "value": v, "domain": "jaccount.sjtu.edu.cn", "path": "/"}
+            for k, v in jaccount_cookies.items()
+        ])
+        page = ctx.new_page()
+        try:
+            page.goto("https://i.sjtu.edu.cn/jaccountlogin",
+                      wait_until="networkidle", timeout=20_000)
+            time.sleep(2)
+        except Exception as e:
+            print(f"[jwxt] 登录失败: {e}")
+            browser.close()
+            return None
+        cookies = {c["name"]: c["value"] for c in ctx.cookies()
+                   if "i.sjtu.edu.cn" in c.get("domain", "")}
+        browser.close()
+
+    if cookies:
+        cfg["jwxt_cookies"] = cookies
+        CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        print("[jwxt] ✓ cookies 已更新")
+        return cookies
+    return None
+
+
+def _auto_year_term() -> tuple[str, str]:
+    """根据当前月份自动判断学年和 xqm 参数。"""
+    m = NOW.month
+    y = NOW.year
+    if m >= 9:                    # 秋季（当年9月 - 次年1月）
+        return str(y), "3"
+    elif m == 1:                  # 仍属上一学年秋季
+        return str(y - 1), "3"
+    else:                         # 春季（2-8月）
+        return str(y - 1), "12"
+
+
+def fetch_schedule(cfg: dict, year: str = "", term: str = "", refresh: bool = False) -> dict:
+    """
+    从 SJTU 教学信息服务网获取完整课表。优先读取本地缓存，同一学期内不重复请求。
+
+    year: 学年（如 '2025' 表示 2025-2026），留空自动判断
+    term: '1'=秋季 / '2'=春季，留空自动判断
+    refresh: True 时强制忽略缓存重新拉取
+    返回 {courses, year, term, total, cached}
+    """
+    auto_year, auto_xqm = _auto_year_term()
+    if not year:
+        year = auto_year
+    if not term:
+        xqm  = auto_xqm
+        term = "1" if xqm == "3" else "2"
+    else:
+        xqm = "3" if term == "1" else "12"
+
+    cache_key = f"{year}-{term}"
+
+    # ── 读缓存 ──────────────────────────────────────────────────────────────
+    if not refresh and _SCHEDULE_CACHE_PATH.exists():
+        try:
+            cached = json.loads(_SCHEDULE_CACHE_PATH.read_text(encoding="utf-8"))
+            if cached.get("cache_key") == cache_key:
+                cached["cached"] = True
+                return cached
+        except Exception:
+            pass
+
+    # ── 网络请求 ─────────────────────────────────────────────────────────────
+    cookies = _get_jwxt_cookies(cfg)
+    if not cookies:
+        return {"error": "无法获取教务系统 session，请检查 jAccount 配置"}
+
+    try:
+        r = requests.post(
+            "https://i.sjtu.edu.cn/kbcx/xskbcx_cxXsKb.html",
+            data={"xnm": year, "xqm": xqm},
+            cookies=cookies,
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://i.sjtu.edu.cn/"},
+            timeout=15,
+        )
+    except Exception as e:
+        return {"error": f"教务系统请求异常: {e}"}
+
+    if r.status_code != 200:
+        return {"error": f"教务系统请求失败: {r.status_code}"}
+    if "jAccount" in r.text:
+        cfg.pop("jwxt_cookies", None)
+        return {"error": "教务系统 session 已过期，请稍后重试（重新运行即可自动刷新）"}
+
+    data = r.json()
+    courses = []
+    for item in data.get("kbList", []):
+        jcs = item.get("jcs", "1-1")
+        slot_s, slot_e = _parse_jcs(jcs)
+        week_set = _parse_week_set(item.get("zcd", ""))
+        courses.append({
+            "name":       item.get("kcmc", ""),
+            "code":       item.get("kch", ""),
+            "teacher":    item.get("xm", ""),
+            "location":   item.get("cdmc", ""),
+            "campus":     item.get("xqmc", ""),
+            "day":        int(item.get("xqj", 0)),     # 1=周一 … 7=周日
+            "slot_start": slot_s,
+            "slot_end":   slot_e,
+            "time_start": _SLOT_TIMES[slot_s - 1][0] if 1 <= slot_s <= 14 else "",
+            "time_end":   _SLOT_TIMES[slot_e - 1][1]  if 1 <= slot_e <= 14 else "",
+            "weeks":      sorted(week_set),
+            "week_str":   item.get("zcd", ""),
+        })
+
+    courses.sort(key=lambda c: (c["day"], c["slot_start"]))
+    result = {"courses": courses, "year": year, "term": term, "total": len(courses),
+              "cache_key": cache_key, "cached": False}
+
+    # 写缓存
+    try:
+        _SCHEDULE_CACHE_PATH.write_text(json.dumps(result, ensure_ascii=False, indent=2),
+                                        encoding="utf-8")
+        print(f"[jwxt] ✓ 课表已缓存（{len(courses)} 门）")
+    except Exception as e:
+        print(f"[jwxt] 缓存写入失败: {e}")
+
+    return result
+
+
+def _current_week_num(cfg: dict) -> int | None:
+    """计算当前是第几教学周；需要 config 中有 semester_start（学期第一周周一的日期 YYYY-MM-DD）。"""
+    start_str = cfg.get("semester_start", "")
+    if not start_str:
+        return None
+    try:
+        from datetime import date
+        sem_start = date.fromisoformat(start_str)
+        delta = (NOW.date() - sem_start).days
+        if delta < 0:
+            return None
+        return delta // 7 + 1
+    except ValueError:
+        return None
+
+
+def get_schedule_for_date(cfg: dict, date_str: str = "", refresh: bool = False) -> dict:
+    """
+    获取某一天的课程安排。
+    date_str: 'YYYY-MM-DD' / '今天' / '明天' / '后天' / '昨天'，留空=今天
+    """
+    from datetime import date, timedelta
+    today = NOW.date()
+    aliases = {
+        "今天": 0, "today": 0,
+        "明天": 1, "tomorrow": 1,
+        "后天": 2,
+        "昨天": -1, "yesterday": -1,
+    }
+    if not date_str or date_str in aliases:
+        target = today + timedelta(days=aliases.get(date_str, 0))
+    else:
+        try:
+            target = date.fromisoformat(date_str)
+        except ValueError:
+            return {"error": f"日期格式错误: {date_str}，请使用 YYYY-MM-DD"}
+
+    # 计算第几周
+    start_str = cfg.get("semester_start", "")
+    week_num: int | None = None
+    if start_str:
+        try:
+            sem_start = date.fromisoformat(start_str)
+            delta = (target - sem_start).days
+            week_num = delta // 7 + 1 if delta >= 0 else None
+        except ValueError:
+            pass
+
+    result = fetch_schedule(cfg, refresh=refresh)
+    if "error" in result:
+        return result
+
+    weekday = target.isoweekday()   # 1=周一 … 7=周日
+    day_courses = [
+        c for c in result["courses"]
+        if c["day"] == weekday and (week_num is None or week_num in c["weeks"])
+    ]
+
+    week_info = f"第 {week_num} 周" if week_num else "（未配置 semester_start，不过滤周次）"
+    return {
+        "date":      target.isoformat(),
+        "weekday":   _WEEKDAY_CN[weekday],
+        "week_info": week_info,
+        "courses":   day_courses,
+        "total":     len(day_courses),
+    }
+
+
+def get_schedule_for_week(cfg: dict, week_offset: int = 0, refresh: bool = False) -> dict:
+    """
+    获取某一周的完整课表。
+    week_offset: 0=本周，1=下周，-1=上周
+    """
+    week_num: int | None = _current_week_num(cfg)
+    target_week = (week_num + week_offset) if week_num is not None else None
+
+    result = fetch_schedule(cfg, refresh=refresh)
+    if "error" in result:
+        return result
+
+    schedule: dict[int, list] = {}
+    for c in result["courses"]:
+        if target_week is None or target_week in c["weeks"]:
+            schedule.setdefault(c["day"], []).append(c)
+
+    days = [
+        {"day": _WEEKDAY_CN[d], "day_num": d, "courses": schedule[d]}
+        for d in range(1, 8) if d in schedule
+    ]
+
+    week_label = {0: "本周", 1: "下周", -1: "上周"}.get(week_offset, f"第{target_week}周")
+    return {
+        "week_label":    week_label,
+        "week_num":      target_week,
+        "days":          days,
+        "total_courses": sum(len(d["courses"]) for d in days),
+    }
+
+
+def set_semester_start(cfg: dict, date_str: str) -> dict:
+    """设置/更新学期起始日期（学期第一周周一），保存到 config。"""
+    from datetime import date
+    try:
+        d = date.fromisoformat(date_str)
+        if d.isoweekday() != 1:
+            return {"error": f"{date_str} 不是周一，semester_start 应为学期第一周的周一"}
+    except ValueError:
+        return {"error": f"日期格式错误: {date_str}"}
+    cfg["semester_start"] = date_str
+    CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True, "semester_start": date_str, "message": f"学期起始日期已设为 {date_str}"}
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="多平台课程 DDL 聚合工具")

@@ -1,6 +1,28 @@
 .env
 config.json
+agent_config.json
 __pycache__/
 *.pyc
 .venv/
 _debug_*.py
+.DS_Store
+.claude/
+
+# Runtime data and caches
+.schedule_cache.json
+mysjtu_catalog.json
+reminders.json
+remind_state.json
+
+# Downloaded assignment materials and local test captures
+assignments/
+assignments_test/
+assignments_test_aihaoke/
+
+# Build artifacts
+build/
+*.egg-info/
+
+# Local launchd output and logs
+com.sjtu.*.plist
+*.log

@@ -8,7 +8,11 @@ SJTU DDL Checker MCP Server
   - get_all        : 同时获取 DDL 和实验安排（汇总）
 
 启动方式：
-  python3 mcp_server.py
+  stdio 模式（Claude Desktop）：
+    python3 mcp_server.py
+
+  HTTP/SSE 模式（ChatGPT Desktop，端口默认 8765）：
+    python3 mcp_server.py --http [--port 8765]
 
 Claude Desktop 配置 (~/.claude_desktop_config.json)：
   {
@@ -19,6 +23,11 @@ Claude Desktop 配置 (~/.claude_desktop_config.json)：
       }
     }
   }
+
+ChatGPT Desktop：
+  1. 先在终端运行：python3 mcp_server.py --http
+  2. 在 ChatGPT Settings → Connectors/Apps 添加 URL：
+     http://localhost:8765/sse
 """
 
 import sys
@@ -152,4 +161,16 @@ def get_all(
 
 
 if __name__ == "__main__":
-    mcp.run()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--http", action="store_true", help="以 HTTP/SSE 模式启动（供 ChatGPT Desktop 使用）")
+    parser.add_argument("--port", type=int, default=8765, help="HTTP 模式端口（默认 8765）")
+    args = parser.parse_args()
+
+    if args.http:
+        print(f"启动 HTTP/SSE 模式，监听 http://localhost:{args.port}/sse")
+        mcp.settings.port = args.port
+        mcp.settings.host = "127.0.0.1"
+        mcp.run(transport="sse")
+    else:
+        mcp.run()

@@ -29,6 +29,7 @@ import tempfile
 from pathlib import Path
 
 import requests
+from sjtu_agent.paths import CONFIG_PATH
 
 try:
     from dotenv import load_dotenv
@@ -37,8 +38,6 @@ except ImportError:
     pass  # 未安装 python-dotenv 也可以直接用环境变量
 
 from playwright.sync_api import BrowserContext, Page, sync_playwright
-
-CONFIG_PATH = Path(__file__).parent / "config.json"
 
 # 各平台域名 → config.json 中的 key
 _DOMAIN_TO_KEY = {
