@@ -6,8 +6,6 @@ English summary: A deployable Shanghai Jiao Tong University campus assistant wit
 
 ## 安装
 
-推荐直接用一键安装脚本：
-
 macOS / Linux:
 
 ```bash
@@ -20,35 +18,35 @@ Windows PowerShell:
 git clone https://github.com/kuan-er/sjtu-agent.git; cd sjtu-agent; powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-这个脚本会自动完成下面这些步骤：创建或复用 `.venv`、升级 `pip`、安装依赖、安装 Playwright Chromium，并默认直接启动 `sjtu-agent setup`。
+安装脚本会自动完成：创建 `.venv`、安装依赖、安装 Playwright Chromium，然后直接启动 `sjtu-agent setup`。
 
-如果你只想安装、不想立刻进入 setup，或者想跳过 Chromium 安装：
+setup 向导会先保存大模型 API 配置，然后依次引导保存校园平台凭据、自动创建 Canvas Token、从 Chrome 导入 Cookie，最后在 macOS 上一并安装 launchd 后台服务。在 setup 过程中可以直接用自然语言回答，也可以输入快捷命令：`status`、`help`、`skip`、`quit`、`open canvas`、`auto canvas`。
+
+## 安装进阶选项
+
+如果只想安装但不立刻进入 setup，或者想跳过 Chromium：
 
 ```bash
 # macOS / Linux
-git clone https://github.com/kuan-er/sjtu-agent.git && cd sjtu-agent && bash install.sh --no-setup
-git clone https://github.com/kuan-er/sjtu-agent.git && cd sjtu-agent && bash install.sh --skip-playwright
+bash install.sh --no-setup
+bash install.sh --skip-playwright
 ```
 
 ```powershell
 # Windows
-git clone https://github.com/kuan-er/sjtu-agent.git; cd sjtu-agent; .\install.ps1 -NoSetup
-git clone https://github.com/kuan-er/sjtu-agent.git; cd sjtu-agent; .\install.ps1 -SkipPlaywright
+.\install.ps1 -NoSetup
+.\install.ps1 -SkipPlaywright
 ```
 
-手动安装方式仍然可用：
+手动安装方式：
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -U pip
 pip install -e .
 sjtu-agent setup
 ```
-
-推荐的首次使用方式是直接运行内置的对话式 setup assistant。它会先保存驱动 Agent 的大模型 API 配置，然后依次检查 Python 依赖、自动安装或校验 Playwright Chromium、引导保存校园平台凭据、尽可能自动创建 Canvas Token、从 Chrome 导入教学平台 Cookie、执行配置体检，并在 macOS 上一并安装 launchd 后台服务，最后还能直接启动主对话。
-
-在 `sjtu-agent setup` 过程中，可以直接用自然语言回答，也可以输入这些快捷命令：`status`、`help`、`skip`、`quit`、`open canvas`、`auto canvas`。
 
 ## 配置致远一号 API（推荐）
 
