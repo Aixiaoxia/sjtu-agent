@@ -1,8 +1,10 @@
 # SJTU Agent
 
-SJTU Agent is a deployable Shanghai Jiao Tong University campus assistant with a terminal chat agent, Telegram bot, reminder daemon, and MCP server.
+面向上海交通大学学生的校园助手，提供终端对话、Telegram Bot、提醒守护进程和 MCP Server。
 
-## Install
+English summary: A deployable Shanghai Jiao Tong University campus assistant with terminal chat, Telegram bot, reminder daemon, and MCP server.
+
+## 安装
 
 ```bash
 python3 -m venv .venv
@@ -12,19 +14,19 @@ pip install -e .
 sjtu-agent setup
 ```
 
-The recommended first-run path is the built-in conversational setup assistant. It now starts by saving the LLM API settings that drive the agent, then checks Python dependencies, verifies or installs Playwright Chromium, offers to save campus credentials, tries to auto-create a Canvas token when possible, imports teaching-platform cookies from Chrome, runs a configuration doctor, can install macOS launchd services in one pass, and finally offers to launch the main agent chat immediately.
+推荐的首次使用方式是直接运行内置的对话式 setup assistant。它会先保存驱动 Agent 的大模型 API 配置，然后依次检查 Python 依赖、自动安装或校验 Playwright Chromium、引导保存校园平台凭据、尽可能自动创建 Canvas Token、从 Chrome 导入教学平台 Cookie、执行配置体检，并在 macOS 上一并安装 launchd 后台服务，最后还能直接启动主对话。
 
-During `sjtu-agent setup`, you can answer in plain language and use commands such as `status`, `help`, `skip`, `quit`, `open canvas`, and `auto canvas`.
+在 `sjtu-agent setup` 过程中，可以直接用自然语言回答，也可以输入这些快捷命令：`status`、`help`、`skip`、`quit`、`open canvas`、`auto canvas`。
 
-## Runtime Data
+## 运行时数据
 
-Installed commands read and write runtime files from the user data directory instead of the repository root.
+安装后的命令默认把运行时文件写到用户数据目录，而不是仓库根目录。
 
 - macOS: `~/Library/Application Support/sjtu-agent`
 - Linux: `${XDG_DATA_HOME:-~/.local/share}/sjtu-agent`
 - Windows: `%APPDATA%/sjtu-agent`
 
-On first import, the package migrates existing local files from the repository root when they exist:
+首次导入包时，如果仓库根目录里已经存在这些旧文件，会自动迁移过去：
 
 - `.env`
 - `config.json`
@@ -34,13 +36,13 @@ On first import, the package migrates existing local files from the repository r
 - `mysjtu_catalog.json`
 - `.schedule_cache.json`
 
-## Commands
+## 常用命令
 
 ```bash
-sjtu-agent                # start chat mode
-sjtu-agent setup          # conversational first-run setup assistant
-sjtu-agent doctor         # print current setup and runtime paths
-sjtu-agent setup-config   # read browser cookies and build config.json
+sjtu-agent                # 启动主对话
+sjtu-agent setup          # 运行首次配置向导
+sjtu-agent doctor         # 查看当前配置状态和运行时路径
+sjtu-agent setup-config   # 从浏览器读取 Cookie 并生成 config.json
 sjtu-agent login --aihaoke
 sjtu-agent ddl --canvas-only
 sjtu-agent daily-report --test
@@ -50,13 +52,13 @@ sjtu-agent mcp --http --port 8765
 sjtu-agent install-daemons
 ```
 
-You can also run the package directly:
+也可以直接以模块方式运行：
 
 ```bash
 python -m sjtu_agent
 ```
 
-Useful setup assistant variants:
+几个常用的 setup 变体：
 
 ```bash
 sjtu-agent setup
@@ -64,21 +66,21 @@ sjtu-agent setup --yes --skip-cookie-import --skip-launchd
 sjtu-agent setup --yes --write-daemons-only --output-dir /tmp/sjtu-agent-launchd
 ```
 
-## macOS Launchd
+## macOS 后台服务
 
-On macOS, you can install the built-in user daemons with one command:
+在 macOS 上，可以直接用一条命令安装内置 launchd 服务：
 
 ```bash
 sjtu-agent install-daemons
 ```
 
-By default this writes LaunchAgent plist files into `~/Library/LaunchAgents` and loads them into the current user session.
+默认会把 LaunchAgent plist 写入 `~/Library/LaunchAgents`，并自动加载到当前用户会话。
 
-- `daily-report`: runs every day at `22:00`
-- `remind-check`: runs every `60` seconds
-- `telegram-bot`: starts at login and is kept alive by launchd
+- `daily-report`：每天 `22:00` 运行一次
+- `remind-check`：每 `60` 秒运行一次
+- `telegram-bot`：登录后启动，并由 launchd 保活
 
-Useful variants:
+常见变体：
 
 ```bash
 sjtu-agent install-daemons --write-only
@@ -86,18 +88,18 @@ sjtu-agent install-daemons --services daily-report remind-check
 sjtu-agent install-daemons --daily-report-time 21:30 --remind-interval 120
 ```
 
-All generated agents use the selected Python interpreter, run from the runtime data directory, and write logs under `~/Library/Application Support/sjtu-agent/logs`.
+这些后台服务会使用当前选定的 Python 解释器，以运行时数据目录为工作目录，并把日志写到 `~/Library/Application Support/sjtu-agent/logs`。
 
-## Configuration
+## 配置说明
 
-The main runtime files are:
+最重要的运行时文件有三个：
 
-- `config.json`: platform tokens, cookies, Telegram settings
-- `.env`: jAccount and MOOC credentials
-- `agent_config.json`: LLM provider and model settings
+- `config.json`：平台 Token、Cookie、Telegram 配置
+- `.env`：jAccount 和 MOOC 账号密码
+- `agent_config.json`：大模型提供方、Base URL 和模型名
 
-For Canvas, `sjtu-agent setup` will try to auto-create and save the token when Playwright plus jAccount credentials are already available. If that best-effort path fails, it falls back to opening `https://oc.sjtu.edu.cn/profile/settings` and asking you to confirm the token once.
+对于 Canvas，如果 Playwright 和 jAccount 凭据已经就绪，`sjtu-agent setup` 会优先尝试自动创建并保存 Token；如果自动流程失败，再回退到打开 `https://oc.sjtu.edu.cn/profile/settings` 并让你手动确认一次。
 
-## Release Notes
+## 发布说明
 
-This repository now exposes a package shell and stable entrypoint, but the core platform adapters still live in the existing top-level modules. That keeps behavior stable while making the project installable and distributable.
+这个仓库已经具备可安装、可分发的包结构和稳定入口；同时，为了保持现有行为稳定，核心平台适配逻辑仍然保留在顶层模块中。

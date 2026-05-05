@@ -19,7 +19,7 @@ Claude Desktop 配置 (~/.claude_desktop_config.json)：
     "mcpServers": {
       "sjtu-ddl": {
         "command": "python3",
-        "args": ["/Users/zhaigong/Projects/claude_SJTU/mcp_server.py"]
+        "args": ["/path/to/sjtu-agent/mcp_server.py"]
       }
     }
   }
