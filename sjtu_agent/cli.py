@@ -139,6 +139,10 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
     return _run_module("mcp_server", args.script_args)
 
 
+def _cmd_wechat_bot(args: argparse.Namespace) -> int:
+    return _run_module("wechat_bot", args.script_args)
+
+
 def _parse_hhmm(value: str) -> tuple[int, int]:
     try:
         hour_text, minute_text = value.split(":", 1)
@@ -201,6 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_passthrough_parser(subparsers, "telegram-bot", "start the Telegram bot", _cmd_telegram_bot)
     _add_passthrough_parser(subparsers, "remind-check", "run the reminder daemon once", _cmd_remind_check)
     _add_passthrough_parser(subparsers, "mcp", "start the MCP server", _cmd_mcp)
+    _add_passthrough_parser(subparsers, "wechat-bot", "start the WeChat ilink bot (long-polling)", _cmd_wechat_bot)
 
     _platform_name = current_platform_name()
     install_daemons_parser = subparsers.add_parser(
