@@ -696,6 +696,23 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "setup_wechat",
+            "description": (
+                "配置微信 ilink Bot：打印登录二维码，让用户扫码完成微信接入，"
+                "bot_token 自动保存到 config.json。"
+                "用户说「接入微信」「配置微信」「微信 bot」「微信推送」时调用。"
+                "注意：扫码登录必须在终端完成，此工具会打印二维码并等待用户扫码确认。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "execute_python",
             "description": (
                 "在当前项目环境中动态执行 Python 代码片段，用于完成没有现成工具的任务。"
@@ -3003,6 +3020,57 @@ def tool_update_user_profile(updates: dict, reason: str = "") -> dict:
     return {"ok": True, "updated_keys": list(updates.keys()), "reason": reason}
 
 
+def tool_setup_wechat() -> dict:
+    """
+    启动微信 ilink Bot 扫码登录流程，在终端打印二维码，等待用户扫码。
+    扫码成功后 bot_token 自动保存到 config.json。
+    """
+    try:
+        import subprocess as _sp
+        import sys as _sys
+        result = _sp.run(
+            [_sys.executable, str(ROOT / "wechat_bot.py"), "--login"],
+            cwd=str(ROOT),
+            timeout=300,  # 5 分钟内完成扫码
+        )
+        if result.returncode == 0:
+            cfg = {}
+            if CONFIG_PATH.exists():
+                cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            has_token = bool(cfg.get("wechat_bot_token"))
+            _msg = (
+                "微信 Bot 登录成功！token 已保存到 config.json。\n"
+                "现在请在微信里找到你刚才登录的 AI Bot（在微信搜索 AI小助手 或你绑定的 bot 名称），\n"
+                "给它发一条任意消息（如 你好），系统就会记录 context_token，之后可以主动推送消息。\n\n"
+                "启动微信 Bot 后台服务：\n"
+                "  python3 wechat_bot.py        # 前台运行\n"
+                "  sjtu-agent wechat-bot         # 通过 CLI 启动（如已安装）"
+            ) if has_token else "扫码完成但未能读取 token，请检查 config.json"
+            _steps = [
+                "在微信里找到你的 AI Bot（搜索 AI小助手）",
+                "给 Bot 发一条消息（如 你好），系统自动记录 context_token",
+                "运行 python3 wechat_bot.py 启动 Bot（或用 sjtu-agent wechat-bot）",
+            ] if has_token else []
+            return {
+                "success": has_token,
+                "saved": has_token,
+                "message": _msg,
+                "next_steps": _steps,
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"登录进程退出码 {result.returncode}",
+                "hint": "请在终端直接运行 python3 wechat_bot.py --login 查看详细错误",
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "hint": "请在终端直接运行 python3 wechat_bot.py --login 完成扫码登录",
+        }
+
+
 def tool_setup_telegram(telegram_token: str, allowed_ids: list | None = None) -> dict:
     """
     将 Telegram Bot Token 和可选的白名单 user_id 保存到 config.json。
@@ -3447,6 +3515,7 @@ def run_tool(name: str, args: dict) -> str:
         elif name == "update_user_profile":      r = tool_update_user_profile(**args)
         elif name == "get_user_profile":         r = tool_get_user_profile()
         elif name == "setup_telegram":           r = tool_setup_telegram(**args)
+        elif name == "setup_wechat":             r = tool_setup_wechat()
         else:                               r = {"error": f"未知工具: {name}"}
     except Exception as e:
         r = {"error": str(e)}
@@ -3691,7 +3760,16 @@ browse_mysjtu 的使用场景：成绩、绩点、奖学金、培养方案、注
    - 运行 `sjtu-agent telegram-bot` 启动 Bot（长轮询，适合本地/服务器常驻）
    - 在 Telegram 中给 Bot 发 /id，获取自己的 user_id
    - 如果想限制 Bot 只响应自己，再次调用 setup_telegram 补填 allowed_ids
-4. Bot 功能与终端版本完全相同：可以查 DDL、看课表、查成绩、搜索校园内容等"""
+4. Bot 功能与终端版本完全相同：可以查 DDL、看课表、查成绩、搜索校园内容等
+
+## 微信 Bot 配置（ilink 协议）
+用户说「接入微信」「配置微信」「微信 bot」「把你接入微信」「微信推送」时：
+1. 调用 setup_wechat()，**这会在终端直接打印二维码并等待扫码**，整个过程在终端完成，无需用户手动操作
+2. 扫码成功后 bot_token 自动保存到 config.json，告知用户：
+   - 在微信里找到你刚才登录的 AI Bot（搜索"AI小助手"）
+   - 给 Bot 发一条消息（如「你好」），系统自动记录 context_token
+   - 运行 `python3 wechat_bot.py` 启动 Bot 后台服务（或 `sjtu-agent wechat-bot`）
+3. Bot 功能与终端版本完全相同：查 DDL、看课表、查成绩、搜索校园内容、接收日报推送等"""
 
 _TOOL_LABELS = {
     "list_canvas_assignments":  "正在列出 Canvas 作业",
@@ -3720,6 +3798,7 @@ _TOOL_LABELS = {
     "send_email":             "正在发送邮件…",
     "execute_python":         "正在执行代码…",
     "setup_telegram":         "正在配置 Telegram Bot…",
+    "setup_wechat":           "正在启动微信扫码登录…",
 }
 
 
