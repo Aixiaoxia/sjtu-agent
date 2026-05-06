@@ -1598,195 +1598,23 @@ def tool_setup_canvas(open_browser: bool = True, auto_create: bool = False, toke
 
 
 def tool_setup_shuiyuan() -> dict:
-    """用 Playwright 全自动完成 Discourse User API Key 授权：登录水源 → 跳转授权页 → 自动点击 → 拦截回调 → 保存。"""
-    manual_note = (
-        "水源社区没有固定的 API 设置页面；不要让用户去偏好设置里找 API。"
-        "正常路径是直接打开 /user-api-key/new 授权；如果站点未启用 User API Key，"
-        "或者 jAccount 登录触发了短信验证，则回退为 session cookie 方案。"
-    )
-
-    def _shuiyuan_error(message: str, next_action: str = "") -> dict:
-        return {
-            "error": message,
-            "manual_note": manual_note,
-            "next_action": next_action or (
-                "如果自动流程失败，不要去设置里找 API。"
-                "可以稍后重新说“配置水源”重试；若站点允许，会直接弹授权页；"
-                "若仍不行，就改用 session cookie 登录方案。"
-            ),
-        }
-
-    try:
-        from playwright.sync_api import sync_playwright as _sync_playwright
-    except ImportError:
-        return _shuiyuan_error("未安装 playwright（pip install playwright && playwright install chromium）")
-
-    import uuid
-    import base64
-    import urllib.parse
-
-    try:
-        from cryptography.hazmat.primitives.asymmetric import rsa, padding
-        from cryptography.hazmat.primitives import hashes, serialization
-    except ImportError:
-        return _shuiyuan_error("需要安装 cryptography 库：pip install cryptography")
-
-    # 生成 RSA-2048 密钥对
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    public_pem = private_key.public_key().public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    ).decode()
-    client_id = str(uuid.uuid4())
-    nonce = uuid.uuid4().hex
-
-    redirect_uri = "http://localhost:19876/callback"
-    auth_url = (
-        "https://shuiyuan.sjtu.edu.cn/user-api-key/new"
-        f"?application_name=SJTU+DDL+Agent"
-        f"&client_id={urllib.parse.quote(client_id)}"
-        f"&scopes=read"
-        f"&public_key={urllib.parse.quote(public_pem)}"
-        f"&nonce={nonce}"
-        f"&auth_redirect={urllib.parse.quote(redirect_uri)}"
-    )
-
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        pass
-
+    """用 Playwright 登录水源社区，保存 session cookie（User API Key 方案已废弃）。"""
     username = os.environ.get("JACCOUNT_USERNAME", "").strip()
     password = os.environ.get("JACCOUNT_PASSWORD", "").strip()
     cfg = {}
-    jaccount_cookies = {}
     if CONFIG_PATH.exists():
         try:
             cfg = json.loads(CONFIG_PATH.read_text())
-            jaccount_cookies = cfg.get("jaccount_cookies", {})
         except Exception:
             pass
 
-    if not username and not jaccount_cookies:
-        return _shuiyuan_error("需要先配置 jAccount 凭据（save_credentials）")
+    if not username and not cfg.get("jaccount_cookies"):
+        return {
+            "error": "需要先配置 jAccount 凭据（save_credentials）",
+            "next_action": "请先用 save_credentials 保存 jAccount 用户名和密码，再重试「配置水源」。",
+        }
 
-    payload_str = ""
-
-    with _sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
-        ctx = browser.new_context()
-
-        if jaccount_cookies:
-            ctx.add_cookies([
-                {"name": k, "value": v, "domain": "jaccount.sjtu.edu.cn", "path": "/"}
-                for k, v in jaccount_cookies.items()
-            ])
-
-        page = ctx.new_page()
-
-        # 拦截回调 URL，截获 payload
-        def intercept(route):
-            url = route.request.url
-            if "payload" in url:
-                qs = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-                nonlocal payload_str
-                payload_str = qs.get("payload", [""])[0]
-            route.fulfill(status=200, body="OK")
-
-        ctx.route("http://localhost:19876/**", intercept)
-
-        # 第一步：先登录水源
-        print("[水源社区] 正在登录水源社区…")
-        try:
-            page.goto("https://shuiyuan.sjtu.edu.cn/", wait_until="networkidle", timeout=20_000)
-        except Exception:
-            pass
-
-        if "jaccount" in page.url:
-            if not username or not password:
-                browser.close()
-                return {"error": "需要 jAccount 凭据，请先用 save_credentials 配置"}
-            try:
-                # 使用支持短信验证码的 _fill_jaccount
-                if not login_module._fill_jaccount(page, username, password):
-                    browser.close()
-                    return _shuiyuan_error("jAccount 登录失败，请检查账号密码")
-                try:
-                    page.wait_for_url("**/shuiyuan.sjtu.edu.cn/**", timeout=15_000)
-                except Exception:
-                    pass
-                new_ja = {c["name"]: c["value"] for c in ctx.cookies()
-                          if "jaccount" in c.get("domain", "")}
-                if new_ja:
-                    cfg["jaccount_cookies"] = new_ja
-            except Exception as e:
-                browser.close()
-                return _shuiyuan_error(
-                    f"jAccount 登录失败：{e}",
-                    "水源没有固定的 API 设置页；你可以稍后重新说「配置水源」重试，"
-                    "或者等自动流程回退到 session cookie 方案。",
-                )
-
-        # 第二步：跳转到授权页（已登录，不会再跳 jAccount）
-        print("[水源社区] 正在请求 API Key 授权…")
-        try:
-            page.goto(auth_url, wait_until="domcontentloaded", timeout=15_000)
-        except Exception:
-            pass
-
-        # 检查是否被跳回"不公开"（说明功能被禁用）
-        if page.url == "https://shuiyuan.sjtu.edu.cn/" or "不公开" in page.content():
-            browser.close()
-            # 降级到 session cookie 方案
-            print("[水源社区] User API Key 功能未启用，改用 session cookie 方案…")
-            return _setup_shuiyuan_session(cfg, username, password)
-
-        # 自动点击授权按钮
-        for selector in [
-            "button[type='submit']",
-            ".btn-primary",
-            "input[type='submit']",
-            "button:has-text('Authorize')",
-            "button:has-text('Allow')",
-        ]:
-            try:
-                btn = page.locator(selector).first
-                if btn.is_visible(timeout=1500):
-                    btn.click()
-                    page.wait_for_timeout(3000)
-                    break
-            except Exception:
-                continue
-
-        browser.close()
-
-    if not payload_str:
-        # 没拿到 payload，降级到 session cookie
-        print("[水源社区] 未能截获授权 payload，改用 session cookie 方案…")
-        return _setup_shuiyuan_session(cfg, username, password)
-
-    try:
-        encrypted = base64.b64decode(payload_str)
-        decrypted = private_key.decrypt(
-            encrypted,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA1()),
-                algorithm=hashes.SHA1(),
-                label=None,
-            ),
-        )
-        data = json.loads(decrypted)
-    except Exception as e:
-        return _shuiyuan_error(f"解密授权数据失败：{e}")
-
-    if data.get("nonce") != nonce:
-        return _shuiyuan_error("Nonce 不匹配，请重试")
-
-    cfg["shuiyuan_user_api_key"] = data.get("key", "")
-    cfg["shuiyuan_user_api_client_id"] = data.get("client_id", client_id)
-    CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2))
-    return {"success": True, "message": "水源社区 User API Key 配置成功（永久有效）"}
+    return _setup_shuiyuan_session(cfg, username, password)
 
 
 def _setup_shuiyuan_session(cfg: dict, username: str, password: str) -> dict:
