@@ -107,10 +107,11 @@ def _init_messages(sess: dict) -> None:
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*[mKABCDEFGHJKST]')
 
 
-def _capture_turn(sess: dict, user_text: str) -> str:
+def _capture_turn(sess: dict, user_text: str, on_tool_result=None) -> str:
     """
     运行一轮对话，捕获 stdout，提取并返回 Agent 回复文本。
     Spinner 的 \r 控制序列和 ANSI 颜色代码会被过滤掉。
+    on_tool_result: 可选回调 (tool_name, fn_args, result_str) -> None
     """
     _init_messages(sess)
     # 每轮刷新 system prompt 中的时间，避免长会话里时间过期
@@ -154,13 +155,14 @@ def _capture_turn(sess: dict, user_text: str) -> str:
 
 # ── 流式推进（带工具进度回调） ──────────────────────────────────────────────
 
-def _streamed_turn(sess: dict, user_text: str, on_progress) -> str:
+def _streamed_turn(sess: dict, user_text: str, on_progress, on_tool_result=None) -> str:
     """
     运行一轮对话，期间通过 on_progress(event_type, payload) 实时上报：
       - on_progress("tool_start", {"name": str})
       - on_progress("tool_end",   {"name": str, "elapsed_ms": int})
       - on_progress("first_token", {})           # 收到第一个文本 token
       - on_progress("text_chunk",  {"text": str}) # 累积 buffer 已超阈值
+    on_tool_result: 可选回调 (tool_name, fn_args, result_str) -> None
     返回完整文本回复。tool_use 循环最多 8 轮。
     """
     import time as _time
@@ -259,6 +261,9 @@ def _streamed_turn(sess: dict, user_text: str, on_progress) -> str:
                 elapsed_ms = int((_time.monotonic() - t0) * 1000)
                 try: on_progress("tool_end", {"name": fn_name, "elapsed_ms": elapsed_ms})
                 except Exception: pass
+                if on_tool_result:
+                    try: on_tool_result(fn_name, fn_args, result)
+                    except Exception: pass
                 tool_results.append({"type": "tool_result", "tool_use_id": b["id"], "content": result})
             api_msgs.append({"role": "user", "content": tool_results})
             sess["messages"].append({"role": "user", "content": tool_results})
@@ -332,6 +337,9 @@ def _streamed_turn(sess: dict, user_text: str, on_progress) -> str:
             elapsed_ms = int((_time.monotonic() - t0) * 1000)
             try: on_progress("tool_end", {"name": fn_name, "elapsed_ms": elapsed_ms})
             except Exception: pass
+            if on_tool_result:
+                try: on_tool_result(fn_name, fn_args, result)
+                except Exception: pass
             tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
             messages.append(tool_msg)
             sess["messages"].append(tool_msg)
@@ -1047,9 +1055,33 @@ def handle_text(msg):
                 progress_lines.append("💬 开始生成回复…")
                 _edit_progress(force=True)
 
+        def on_tool_result(tool_name: str, fn_args: dict, result_str: str):
+            """工具执行完后，如果是文件下载类工具，把文件发给用户。"""
+            if tool_name not in ("download_assignments",):
+                return
+            import json as _j
+            try:
+                data = _j.loads(result_str)
+            except Exception:
+                return
+            # 遍历 items 里每个作业的 files 列表
+            for item in data.get("items", []):
+                for f in item.get("files", []):
+                    path_str = f.get("path", "")
+                    if not path_str:
+                        continue
+                    p = Path(path_str)
+                    if not p.exists():
+                        continue
+                    try:
+                        with p.open("rb") as fh:
+                            bot.send_document(chat_id, fh, visible_file_name=p.name)
+                    except Exception as e:
+                        bot.send_message(chat_id, f"⚠️ 发送文件 {p.name} 失败：{e}")
+
         try:
             with lock:
-                reply = _streamed_turn(sess, user_text, on_progress)
+                reply = _streamed_turn(sess, user_text, on_progress, on_tool_result)
             html_reply = _md_to_tg_html(reply) if reply else "(已完成)"
             # 删除进度消息，发送最终回复（避免长留闪烁信息）
             if progress_msg is not None:
