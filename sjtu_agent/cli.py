@@ -208,6 +208,11 @@ def _cmd_install_daemons(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     print_json(payload)
+    if not args.write_only:
+        import time
+        import webbrowser
+        time.sleep(2)  # give launchd time to start the web service
+        webbrowser.open("http://127.0.0.1:7860")
     return 0
 
 

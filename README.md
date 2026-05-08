@@ -24,7 +24,7 @@ git clone https://github.com/kuan-er/sjtu-agent.git; cd sjtu-agent; powershell -
 
 安装脚本会自动完成：创建 `.venv`、安装依赖、安装 Playwright Chromium，然后直接启动 `sjtu-agent setup`。
 
-setup 向导会先保存大模型 API 配置，然后依次引导保存校园平台凭据、自动创建 Canvas Token、从 Chrome 导入 Cookie，最后在 macOS 上一并安装 launchd 后台服务。在 setup 过程中可以直接用自然语言回答，也可以输入快捷命令：`status`、`help`、`skip`、`quit`、`open canvas`、`auto canvas`。
+setup 向导会先保存大模型 API 配置，然后依次引导保存校园平台凭据、自动创建 Canvas Token、从 Chrome 导入 Cookie，最后在 macOS 上一并安装 launchd 后台服务并**自动打开 Web UI**（`http://127.0.0.1:7860`）进行配置。在 setup 过程中可以直接用自然语言回答，也可以输入快捷命令：`status`、`help`、`skip`、`quit`、`open canvas`、`auto canvas`。
 
 ## 安装进阶选项
 
@@ -121,8 +121,9 @@ sjtu-agent setup --yes --write-daemons-only --output-dir /tmp/sjtu-agent-launchd
 sjtu-agent install-daemons
 ```
 
-默认会把 LaunchAgent plist 写入 `~/Library/LaunchAgents`，并自动加载到当前用户会话。
+默认会把 LaunchAgent plist 写入 `~/Library/LaunchAgents`，并自动加载到当前用户会话。安装完成后会**自动在浏览器中打开 Web UI**（`http://127.0.0.1:7860`），可以在里面完成所有配置，包括 API Key、平台账号、Telegram Bot Token 等。
 
+- `web`：Web 配置界面，随系统启动，由 launchd 保活
 - `daily-report`：每天 `22:00` 运行一次
 - `remind-check`：每 `60` 秒运行一次
 - `telegram-bot`：登录后启动，并由 launchd 保活
