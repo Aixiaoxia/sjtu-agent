@@ -135,6 +135,20 @@ def _cmd_remind_check(args: argparse.Namespace) -> int:
     return _run_module("remind_check", args.script_args)
 
 
+def _cmd_news_digest(args: argparse.Namespace) -> int:
+    """运行智能新闻日报（采集 + 排序 + 推送）。"""
+    root = Path(__file__).resolve().parent.parent
+    script = root / "news_digest.py"
+    old_argv = sys.argv[:]
+    sys.argv = [str(script), *(args.script_args or [])]
+    try:
+        import runpy
+        runpy.run_path(str(script), run_name="__main__")
+    finally:
+        sys.argv = old_argv
+    return 0
+
+
 def _cmd_mcp(args: argparse.Namespace) -> int:
     return _run_module("mcp_server", args.script_args)
 
@@ -222,6 +236,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_passthrough_parser(subparsers, "daily-report", "generate or send the daily report", _cmd_daily_report)
     _add_passthrough_parser(subparsers, "telegram-bot", "start the Telegram bot", _cmd_telegram_bot)
     _add_passthrough_parser(subparsers, "remind-check", "run the reminder daemon once", _cmd_remind_check)
+    _add_passthrough_parser(subparsers, "news-digest", "run the smart news digest (collect + rank + push)", _cmd_news_digest)
     _add_passthrough_parser(subparsers, "mcp", "start the MCP server", _cmd_mcp)
     _add_passthrough_parser(subparsers, "wechat-bot", "start the WeChat ilink bot (long-polling)", _cmd_wechat_bot)
 

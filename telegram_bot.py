@@ -336,6 +336,13 @@ def _streamed_turn(sess: dict, user_text: str, on_progress) -> str:
             messages.append(tool_msg)
             sess["messages"].append(tool_msg)
 
+    # 记录对话到 conversation_log（供用户画像更新使用）
+    try:
+        from sjtu_agent.news_aggregator.profile import log_conversation
+        log_conversation(user_text, full_text)
+    except Exception:
+        pass
+
     return full_text
 
 
@@ -667,6 +674,76 @@ def cmd_reminders(msg):
         for r in expired:
             lines.append(f"• [{r['id']}] {r['title']}")
     bot.reply_to(msg, "\n".join(lines), parse_mode="HTML")
+
+
+@bot.message_handler(commands=["news"])
+def cmd_news(msg):
+    """立即触发一次新闻日报采集与推送。"""
+    if not _is_authorized(msg.chat.id, msg):
+        return
+    bot.reply_to(msg, "⏳ 正在采集新闻，请稍候（约 30 秒）…")
+    def run():
+        try:
+            from sjtu_agent.news_aggregator import NewsAggregator
+            from sjtu_agent.agent.chat_loop import load_agent_config
+            from sjtu_agent.agent.runner import _make_client
+            cfg = load_agent_config()
+            llm_client = _make_client(cfg) if cfg.get("api_key") else None
+            agg = NewsAggregator(llm_client=llm_client, model=cfg.get("model", ""))
+            _, html = agg.run()
+            _send_chunks(msg.chat.id, html, parse_mode="HTML")
+        except Exception as e:
+            bot.send_message(msg.chat.id, f"❌ 新闻采集失败：{e}")
+    threading.Thread(target=run, daemon=True).start()
+
+
+@bot.message_handler(commands=["news_block"])
+def cmd_news_block(msg):
+    """屏蔽某个新闻分类：/news_block 二手交易"""
+    if not _is_authorized(msg.chat.id, msg):
+        return
+    parts = msg.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot.reply_to(msg, "用法：/news_block <分类名>\n例如：/news_block 二手交易")
+        return
+    category = parts[1].strip()
+    try:
+        from sjtu_agent.news_aggregator.profile import UserProfile
+        UserProfile().block_category(category)
+        bot.reply_to(msg, f"✅ 已屏蔽「{category}」，下次日报不再推送此类内容。")
+    except Exception as e:
+        bot.reply_to(msg, f"❌ 操作失败：{e}")
+
+
+@bot.message_handler(commands=["news_unblock"])
+def cmd_news_unblock(msg):
+    """取消屏蔽：/news_unblock 二手交易"""
+    if not _is_authorized(msg.chat.id, msg):
+        return
+    parts = msg.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot.reply_to(msg, "用法：/news_unblock <分类名>")
+        return
+    category = parts[1].strip()
+    try:
+        from sjtu_agent.news_aggregator.profile import UserProfile
+        UserProfile().unblock_category(category)
+        bot.reply_to(msg, f"✅ 已取消屏蔽「{category}」。")
+    except Exception as e:
+        bot.reply_to(msg, f"❌ 操作失败：{e}")
+
+
+@bot.message_handler(commands=["news_reset"])
+def cmd_news_reset(msg):
+    """重置用户画像（保留屏蔽列表）。"""
+    if not _is_authorized(msg.chat.id, msg):
+        return
+    try:
+        from sjtu_agent.news_aggregator.profile import UserProfile
+        UserProfile().reset()
+        bot.reply_to(msg, "✅ 用户画像已重置，下次日报将从零开始学习你的偏好。")
+    except Exception as e:
+        bot.reply_to(msg, f"❌ 操作失败：{e}")
 
 
 # ── 文件 / 图片处理辅助 ───────────────────────────────────────────────────────
@@ -1062,12 +1139,15 @@ if __name__ == "__main__":
     # 向 Telegram 服务器注册命令列表，用户输入 / 时会弹出自动补全菜单
     from telebot.types import BotCommand
     bot.set_my_commands([
-        BotCommand("report",    "📊 立即生成今日学习日报"),
-        BotCommand("reminders", "📌 查看提醒事项列表"),
-        BotCommand("reset",     "🔄 重置对话历史"),
-        BotCommand("id",        "🔑 显示我的 chat_id"),
-        BotCommand("help",      "❓ 帮助与命令列表"),
+        BotCommand("report",       "📊 立即生成今日学习日报"),
+        BotCommand("reminders",    "📌 查看提醒事项列表"),
+        BotCommand("news",         "📰 立即获取今日新闻日报"),
+        BotCommand("news_block",   "🚫 屏蔽某类新闻（如：/news_block 二手交易）"),
+        BotCommand("news_reset",   "🔄 重置新闻推荐画像"),
+        BotCommand("reset",        "🔄 重置对话历史"),
+        BotCommand("id",           "🔑 显示我的 chat_id"),
+        BotCommand("help",         "❓ 帮助与命令列表"),
     ])
-    print("   已注册 5 条命令（/report /reminders /reset /id /help）")
+    print("   已注册 8 条命令")
     print(f"   等待消息… （Ctrl+C 停止）")
     bot.infinity_polling(timeout=30, long_polling_timeout=30)

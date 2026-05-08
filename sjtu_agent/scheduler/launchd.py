@@ -48,6 +48,13 @@ _SERVICE_SPECS = {
         "schedule_type": "none",
         "keep_alive": True,
     },
+    "news-digest": {
+        "label": "com.sjtu.news-digest",
+        "subcommand": "news-digest",
+        "log": "news_digest.launchd.log",
+        "run_at_load": False,
+        "schedule_type": "calendar",  # 每天 10:00
+    },
 }
 
 
@@ -57,6 +64,7 @@ def _build_plist(
     daily_report_time: tuple[int, int],
     remind_interval: int,
     telegram_throttle: int,
+    news_digest_time: tuple[int, int] = (10, 0),
 ) -> dict:
     spec = _SERVICE_SPECS[name]
     log_path = LOG_DIR / spec["log"]
@@ -70,7 +78,10 @@ def _build_plist(
         "EnvironmentVariables": {"PYTHONUNBUFFERED": "1"},
     }
     if spec["schedule_type"] == "calendar":
-        hour, minute = daily_report_time
+        if name == "news-digest":
+            hour, minute = news_digest_time
+        else:
+            hour, minute = daily_report_time
         payload["StartCalendarInterval"] = {"Hour": hour, "Minute": minute}
     elif spec["schedule_type"] == "interval":
         payload["StartInterval"] = remind_interval

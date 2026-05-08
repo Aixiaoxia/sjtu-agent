@@ -40,6 +40,8 @@ REMIND_CHECK_LOG_PATH = LOG_DIR / "remind_check.log"
 DDL_CACHE_PATH        = DATA_DIR / ".ddl_cache.json"
 USER_PROFILE_PATH     = DATA_DIR / "user_profile.json"
 CARE_STATE_PATH       = DATA_DIR / "care_state.json"
+NEWS_HISTORY_PATH     = DATA_DIR / "news_history.json"
+CONVERSATION_LOG_PATH = DATA_DIR / "conversation_log.jsonl"
 
 
 def atomic_write_json(path: Path, data, *, indent: int = 2) -> None:
