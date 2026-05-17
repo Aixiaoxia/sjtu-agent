@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
-import runpy
 import shutil
 import subprocess
 import sys
@@ -1036,14 +1035,14 @@ class SetupConversation:
         old_argv = sys.argv[:]
         sys.argv = ["agent"]
         try:
-            runpy.run_module("agent", run_name="__main__")
+            from sjtu_agent.agent.chat_loop import main as agent_main
+            agent_main()
             return 0
         except SystemExit as exc:
             code = exc.code
             return code if isinstance(code, int) else 0
         finally:
             sys.argv = old_argv
-        return 0
 
     def run(self) -> int:
         self.say("我是 SJTU Agent 的 setup assistant。我会先把模型 API 配好，再按缺口一步一步带你完成校园平台配置。")
