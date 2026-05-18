@@ -14,7 +14,7 @@ from sjtu_agent.paths import AGENT_CONFIG_PATH, ENV_PATH, DDL_CACHE_PATH
 from sjtu_agent.terminal_ui import print_markdown_message, print_rule
 from sjtu_agent.agent.prompts import SYSTEM_PROMPT
 from sjtu_agent.agent.runner import _make_client, _run_one_turn, Spinner
-from sjtu_agent.agent.tools import TOOLS, run_tool, _fetch_ddls_parallel, _ddl_cache_get, tool_check_setup
+from sjtu_agent.agent.tools import TOOLS, run_tool, _fetch_ddls_parallel, _ddl_cache_get, tool_check_setup, _load_reminders
 
 load_dotenv(ENV_PATH)
 
@@ -299,7 +299,8 @@ def chat_loop(client, model: str):
 
     # ── 启动时检查即将到期的提醒事项（30分钟内）────────────────────────────
     import datetime as _dt2
-    _now2 = _dt2.datetime.now(dc.CST)
+    _CST = _dt2.timezone(_dt2.timedelta(hours=8))
+    _now2 = _dt2.datetime.now(_CST)
     _soon = _now2 + _dt2.timedelta(minutes=30)
     _due_reminders = []
     for _r in _load_reminders():
@@ -310,7 +311,7 @@ def chat_loop(client, model: str):
             try:
                 _rdt = _dt2.datetime.fromisoformat(_ts)
                 if _rdt.tzinfo is None:
-                    _rdt = _rdt.replace(tzinfo=dc.CST)
+                    _rdt = _rdt.replace(tzinfo=_CST)
                 if _now2 <= _rdt <= _soon:
                     _due_reminders.append(
                         f"  ⏰ 【{_r['title']}】{'开始' if _key=='start' else '结束'}"
