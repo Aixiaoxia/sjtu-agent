@@ -308,41 +308,42 @@ def _run_one_turn_openai(client: OpenAI, model: str, messages: list) -> None:
 
         # ── 纯文本回复（无工具调用）─────────────────────────────────────
         if not tool_calls_map:
-            messages.append({"role": "assistant", "content": clean_content})
+            _msg = {"role": "assistant", "content": clean_content}
+            # DeepSeek 思考模型（deepseek-v4-flash 等）要求 reasoning_content 必须回传
+            if _reasoning:
+                _msg["reasoning_content"] = _reasoning
+            messages.append(_msg)
             return
 
         # ── 有工具调用：构建 assistant 消息并执行 ───────────────────────
-        from openai.types.chat import ChatCompletionMessageToolCall
-        from openai.types.chat.chat_completion_message_tool_call import Function
-        from openai.types.chat import ChatCompletionMessage
-
-        tool_call_objs = []
+        # 用 dict 而非 ChatCompletionMessage 对象，方便附带 reasoning_content
+        tool_calls_payload = []
         for idx in sorted(tool_calls_map):
             e = tool_calls_map[idx]
-            tool_call_objs.append(
-                ChatCompletionMessageToolCall(
-                    id=e["id"],
-                    type="function",
-                    function=Function(name=e["name"], arguments=e["arguments"]),
-                )
-            )
+            tool_calls_payload.append({
+                "id": e["id"],
+                "type": "function",
+                "function": {"name": e["name"], "arguments": e["arguments"]},
+            })
 
-        assistant_msg = ChatCompletionMessage(
-            role="assistant",
-            content=clean_content or None,
-            tool_calls=tool_call_objs,
-        )
+        assistant_msg = {
+            "role": "assistant",
+            "content": clean_content or None,
+            "tool_calls": tool_calls_payload,
+        }
+        if _reasoning:
+            assistant_msg["reasoning_content"] = _reasoning
         messages.append(assistant_msg)
 
-        for tc in tool_call_objs:
-            fn_name = tc.function.name
-            fn_args = json.loads(tc.function.arguments or "{}")
+        for tc in tool_calls_payload:
+            fn_name = tc["function"]["name"]
+            fn_args = json.loads(tc["function"]["arguments"] or "{}")
             if fn_name not in ("check_setup",):
                 spinner.start(_TOOL_LABELS.get(fn_name, fn_name) + "…")
             result = _get_run_tool()(fn_name, fn_args)
             if fn_name not in ("check_setup",):
                 spinner.stop()
-            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
 
 
 def _run_one_turn_anthropic(client: Anthropic, model: str, messages: list) -> None:
