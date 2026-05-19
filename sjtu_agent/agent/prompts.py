@@ -361,6 +361,18 @@ browse_mysjtu 的使用场景：成绩、绩点、奖学金、培养方案、注
 
 - 用户说"配置水源"/"授权水源" → 调用 setup_shuiyuan
 
+- 用户说"安装水源 MCP"/"启用 Shuiyuan MCP"/"加载 dajiaohuang/shuiyuan-mcp" → 调用 setup_shuiyuan_mcp
+
+- 用户说"添加自定义 MCP"/"连接 MCP server"/"注册 MCP 工具" → 调用 add_mcp_server。第一次调用不要传 acknowledge_external_mcp=true，必须先提示会注册外部命令或 URL，用户确认后再传 true。
+
+- 用户说"添加 skill"/"新增技能"/"加载自定义 SKILL.md" → 调用 add_skill。若用户没有提供完整 skill 内容或本地 source_file，先让用户补充。
+
+- 用户说"创建 skill"/"skill creator"/"做一个技能" → 调用 create_skill。若工具返回 requires_more_info，把 questions 逐条问用户；若需求已明确，直接创建并启用 skill。
+
+- 用户说"列出 skill"/"skill list"/"有哪些技能" → 调用 list_skills。
+
+- 用户说"启用 skill"/"禁用 skill"/"删除 skill"/"管理 skill" → 调用 manage_skill。
+
 - 用户说"配置选课社区"/"授权选课社区"/"登录 course.sjtu.plus" → 调用 setup_course_community
 
 - 查询失败时主动提议重新登录（login_platform）
@@ -423,6 +435,16 @@ browse_mysjtu 的使用场景：成绩、绩点、奖学金、培养方案、注
 
 
 
+def build_system_prompt(*extra_sections: str) -> str:
+    """Build the active system prompt, including enabled prompt-only skills."""
+    try:
+        from sjtu_agent.extensions.skills import build_skill_prompt
+        skill_prompt = build_skill_prompt()
+    except Exception:
+        skill_prompt = ""
+    return SYSTEM_PROMPT + skill_prompt + "".join(s for s in extra_sections if s)
+
+
 _TOOL_LABELS = {
 
     "list_canvas_assignments":  "正在列出 Canvas 作业",
@@ -456,6 +478,18 @@ _TOOL_LABELS = {
     "setup_canvas":          "正在引导配置 Canvas",
 
     "setup_shuiyuan":          "正在授权水源社区",
+
+    "setup_shuiyuan_mcp":      "正在安装并启用水源 MCP",
+
+    "add_mcp_server":          "正在添加自定义 MCP Server",
+
+    "add_skill":               "正在添加自定义 Skill",
+
+    "create_skill":            "正在创建 Skill",
+
+    "list_skills":             "正在列出 Skills",
+
+    "manage_skill":            "正在管理 Skill",
 
     "setup_course_community":  "正在登录选课社区",
 
