@@ -121,96 +121,98 @@ TOOLS = [
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "setup_shuiyuan_mcp",
-            "description": (
-                "Install or enable the external Shuiyuan MCP server from "
-                "https://github.com/dajiaohuang/shuiyuan-mcp, add it to the "
-                "agent MCP registry, and enable the bundled shuiyuan-mcp skill. "
-                "Disclosure: that MCP repo is maintained by this integration's PR author; "
-                "the default install checks out a pinned commit. "
-                "Use when the user asks to install/enable/load Shuiyuan MCP."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "install_dir": {
-                        "type": "string",
-                        "description": "Optional local install directory. Defaults to the sjtu-agent data dir.",
-                    },
-                    "enable": {
-                        "type": "boolean",
-                        "description": "Whether to enable the MCP server after installation. Defaults to true.",
-                    },
-                    "allow_writes": {
-                        "type": "boolean",
-                        "description": "Whether Shuiyuan MCP should expose write tools. Defaults to true.",
-                    },
-                    "run_login": {
-                        "type": "boolean",
-                        "description": "Whether to run shuiyuan-mcp-login after install. Defaults to false.",
-                    },
-                    "ref": {
-                        "type": "string",
-                        "description": "Optional git commit/tag/branch to checkout. Defaults to a pinned commit.",
-                    },
-                    "acknowledge_external_repo": {
-                        "type": "boolean",
-                        "description": (
-                            "Must be true before installation starts. The first call from chat should leave this "
-                            "false so the user is warned that this installs an external GitHub repository."
-                        ),
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "setup_ykst_mcp",
-            "description": (
-                "Install or enable the external YKST/Treehole MCP server from "
-                "https://github.com/dajiaohuang/ykst-treehole-mcp, add it to the "
-                "agent MCP registry, and enable the bundled ykst-mcp skill. "
-                "Disclosure: that MCP repo is maintained by this integration's PR author; "
-                "the default install checks out a pinned commit. "
-                "Use when the user asks to install/enable/load YKST, Treehole, or 树洞 MCP."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "install_dir": {
-                        "type": "string",
-                        "description": "Optional local install directory. Defaults to the sjtu-agent data dir.",
-                    },
-                    "enable": {
-                        "type": "boolean",
-                        "description": "Whether to enable the MCP server after installation. Defaults to true.",
-                    },
-                    "run_login": {
-                        "type": "boolean",
-                        "description": "Whether to run the YKST MCP browser login helper after install. Defaults to false.",
-                    },
-                    "ref": {
-                        "type": "string",
-                        "description": "Optional git commit/tag/branch to checkout. Defaults to a pinned commit.",
-                    },
-                    "acknowledge_external_repo": {
-                        "type": "boolean",
-                        "description": (
-                            "Must be true before installation starts. The first call from chat should leave this "
-                            "false so the user is warned that this installs an external GitHub repository."
-                        ),
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
+    # NOTE: Agent-triggered MCP installation tools are disabled.
+    # Users should install via CLI: sjtu-agent setup-shuiyuan-mcp / setup-ykst-mcp
+    # {
+    #     "type": "function",
+    #     "function": {
+    #         "name": "setup_shuiyuan_mcp",
+    #         "description": (
+    #             "Install or enable the external Shuiyuan MCP server from "
+    #             "https://github.com/dajiaohuang/shuiyuan-mcp, add it to the "
+    #             "agent MCP registry, and enable the bundled shuiyuan-mcp skill. "
+    #             "Disclosure: that MCP repo is maintained by this integration's PR author; "
+    #             "the default install checks out a pinned commit. "
+    #             "Use when the user asks to install/enable/load Shuiyuan MCP."
+    #         ),
+    #         "parameters": {
+    #             "type": "object",
+    #             "properties": {
+    #                 "install_dir": {
+    #                     "type": "string",
+    #                     "description": "Optional local install directory. Defaults to the sjtu-agent data dir.",
+    #                 },
+    #                 "enable": {
+    #                     "type": "boolean",
+    #                     "description": "Whether to enable the MCP server after installation. Defaults to true.",
+    #                 },
+    #                 "allow_writes": {
+    #                     "type": "boolean",
+    #                     "description": "Whether Shuiyuan MCP should expose write tools. Defaults to true.",
+    #                 },
+    #                 "run_login": {
+    #                     "type": "boolean",
+    #                     "description": "Whether to run shuiyuan-mcp-login after install. Defaults to false.",
+    #                 },
+    #                 "ref": {
+    #                     "type": "string",
+    #                     "description": "Optional git commit/tag/branch to checkout. Defaults to a pinned commit.",
+    #                 },
+    #                 "acknowledge_external_repo": {
+    #                     "type": "boolean",
+    #                     "description": (
+    #                         "Must be true before installation starts. The first call from chat should leave this "
+    #                         "false so the user is warned that this installs an external GitHub repository."
+    #                     ),
+    #                 },
+    #             },
+    #             "required": [],
+    #         },
+    #     },
+    # },
+    # {
+    #     "type": "function",
+    #     "function": {
+    #         "name": "setup_ykst_mcp",
+    #         "description": (
+    #             "Install or enable the external YKST/Treehole MCP server from "
+    #             "https://github.com/dajiaohuang/ykst-treehole-mcp, add it to the "
+    #             "agent MCP registry, and enable the bundled ykst-mcp skill. "
+    #             "Disclosure: that MCP repo is maintained by this integration's PR author; "
+    #             "the default install checks out a pinned commit. "
+    #             "Use when the user asks to install/enable/load YKST, Treehole, or 树洞 MCP."
+    #         ),
+    #         "parameters": {
+    #             "type": "object",
+    #             "properties": {
+    #                 "install_dir": {
+    #                     "type": "string",
+    #                     "description": "Optional local install directory. Defaults to the sjtu-agent data dir.",
+    #                 },
+    #                 "enable": {
+    #                     "type": "boolean",
+    #                     "description": "Whether to enable the MCP server after installation. Defaults to true.",
+    #                 },
+    #                 "run_login": {
+    #                     "type": "boolean",
+    #                     "description": "Whether to run the YKST MCP browser login helper after install. Defaults to false.",
+    #                 },
+    #                 "ref": {
+    #                     "type": "string",
+    #                     "description": "Optional git commit/tag/branch to checkout. Defaults to a pinned commit.",
+    #                 },
+    #                 "acknowledge_external_repo": {
+    #                     "type": "boolean",
+    #                     "description": (
+    #                         "Must be true before installation starts. The first call from chat should leave this "
+    #                         "false so the user is warned that this installs an external GitHub repository."
+    #                     ),
+    #                 },
+    #             },
+    #             "required": [],
+    #         },
+    #     },
+    # },
     {
         "type": "function",
         "function": {
@@ -5019,8 +5021,9 @@ def run_tool(name: str, args: dict) -> str:
         elif name == "read_shuiyuan_topic":   r = tool_read_shuiyuan_topic(**args)
         elif name == "get_schedule":          r = tool_get_schedule(**args)
         elif name == "setup_shuiyuan":        r = tool_setup_shuiyuan()
-        elif name == "setup_shuiyuan_mcp":    r = tool_setup_shuiyuan_mcp(**args)
-        elif name == "setup_ykst_mcp":        r = tool_setup_ykst_mcp(**args)
+        # NOTE: Agent-triggered MCP installation is disabled; use CLI instead.
+        # elif name == "setup_shuiyuan_mcp":    r = tool_setup_shuiyuan_mcp(**args)
+        # elif name == "setup_ykst_mcp":        r = tool_setup_ykst_mcp(**args)
         elif name == "add_mcp_server":        r = tool_add_mcp_server(**args)
         elif name == "add_skill":             r = tool_add_skill(**args)
         elif name == "create_skill":          r = tool_create_skill(**args)
