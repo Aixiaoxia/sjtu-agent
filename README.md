@@ -269,21 +269,7 @@ psmux -L sjtu-agent ls
 
 ## YKST / 树洞原生支持
 
-SJTU Agent 内置 YKST/TreeHole gRPC-Web 客户端，不需要安装额外 MCP 服务即可读取树洞主题、回帖、身份列表，并在二次确认后执行回帖、切换身份、点赞/点踩和收藏等操作。
-
-登录方式：
-
-```bash
-sjtu-agent ykst-login
-```
-
-命令会打开 jAccount OAuth 登录页。登录后，把浏览器地址栏中的完整回调 URL 贴回：
-
-```bash
-sjtu-agent ykst-login --callback-url "https://web.treehole.space/auth/jaccount?code=..."
-```
-
-也可以在对话里说「配置树洞」触发同样流程。登录态只会保存到本机 `config.json` 的 `ykst_treehole_token` 字段；也支持用环境变量 `TREEHOLE_SESSION` / `TREEHOLE_TOKEN` 和 `TREEHOLE_RPC_HOST` 覆盖。
+SJTU Agent 内置 YKST/TreeHole gRPC-Web 客户端，支持自动 OAuth 登录、浏览主题回帖、搜索、点赞、收藏等操作。详见 [docs/ykst-treehole.md](docs/ykst-treehole.md)。
 
 ## 运行时数据
 
