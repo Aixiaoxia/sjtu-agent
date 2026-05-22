@@ -79,20 +79,16 @@ def _html_to_post(text: str) -> list:
         pos = 0
         for m in re.finditer(r"<(/?)([bi])>", para):
             tag_start, tag = m.groups()
-            # 标签前的纯文本
             prefix = para[pos:m.start()]
-            if prefix:
-                elements.append({"tag": "text", "text": prefix})
             if not tag_start:  # opening tag
+                if prefix:
+                    elements.append({"tag": "text", "text": prefix})
                 pos = m.end()
             else:  # closing tag
                 inner = para[pos:m.start()]
                 if inner:
                     el = {"tag": "text", "text": inner}
-                    if tag == "b":
-                        el["style"] = ["bold"]
-                    elif tag == "i":
-                        el["style"] = ["italic"]
+                    el["style"] = ["bold"] if tag == "b" else ["italic"]
                     elements.append(el)
                 pos = m.end()
         # 剩余纯文本
