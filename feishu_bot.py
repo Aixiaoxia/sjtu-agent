@@ -143,6 +143,7 @@ def _save_sessions() -> None:
 _load_sessions()
 
 
+
 def _new_conv_dict(name: str) -> dict:
     agent_cfg = agent.load_agent_config()
     return {
