@@ -230,7 +230,6 @@ def _download_and_analyze_one(d: dict, idx: int) -> str:
         f"截止：{due_str}（{remaining}）\n\n"
         f"{analysis}"
     )
-    )
 
 
 def _format_list(pending: list[dict]) -> str:
