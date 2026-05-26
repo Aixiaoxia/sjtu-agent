@@ -778,8 +778,28 @@ def _handle_commands(open_id: str, text: str) -> str | None:
                 "`/name <序号> <名称>`  重命名对话\n"
                 "`/delete <序号>`  删除对话\n"
                 "`/history`  查看当前对话最近消息\n"
+                "`/hw`  列出即将到期的 Canvas 作业\n"
+                "`/hw do <序号>`  下载并分析指定作业\n"
+                "`/hw all`  分析全部即将到期作业\n"
                 "`/help`  显示此帮助"
             )
+        if cmd == "/hw":
+            sub = parts[1] if len(parts) > 1 else ""
+            if sub == "do":
+                if len(parts) < 3:
+                    return "用法：/hw do <序号>"
+                try:
+                    idx = int(parts[2])
+                except ValueError:
+                    return f"无效序号：{parts[2]}"
+                from sjtu_agent.homework_agent import run_homework_check
+                return "[homework] 正在分析作业…\n\n" + run_homework_check(specific_idx=idx)
+            elif sub == "all":
+                from sjtu_agent.homework_agent import run_homework_check
+                return "[homework] 正在分析全部作业…\n\n" + run_homework_check(due_within_days=7)
+            else:
+                from sjtu_agent.homework_agent import run_homework_check
+                return "[homework] 正在检查作业…\n\n" + run_homework_check()
         return f"未知命令：{cmd}。输入 /help 查看可用命令。"
 
 

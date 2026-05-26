@@ -26,6 +26,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_ROOT.parent
 DATA_DIR = Path(os.environ.get("SJTU_AGENT_HOME", user_data_dir(APP_NAME)))
 LOG_DIR = DATA_DIR / "logs"
+ASSIGNMENTS_DIR = Path(os.environ.get("SJTU_HOMEWORK_DIR", str(DATA_DIR / "assignments")))
 
 ENV_PATH = DATA_DIR / ".env"
 CONFIG_PATH = DATA_DIR / "config.json"
