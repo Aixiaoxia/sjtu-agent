@@ -105,33 +105,14 @@ def read_assignment_content(assignment_dir: Path) -> str:
     return "\n\n".join(parts) if parts else "[无可读文件]"
 
 
-def analyze_homework(course: str, assignment_name: str, content: str,
-                     llm_client=None, model: str = "") -> str:
-    """将作业内容发给 LLM 分析并返回结果。"""
+def _call_llm(prompt: str, llm_client=None, model: str = "") -> str:
+    """调用 LLM 并返回结果。"""
     if llm_client is None:
         agent_cfg = agent.load_agent_config()
         if not agent_cfg.get("api_key"):
-            return "[LLM 未配置，无法分析]"
+            return "[LLM 未配置]"
         llm_client = agent._make_client(agent_cfg)
         model = agent_cfg.get("model", "deepseek-chat")
-
-    content = _latex_to_unicode(content)
-    prompt = f"""你是一位学习助手，请分析以下作业内容并给出回答。
-
-课程：{course}
-作业名称：{assignment_name}
-
-作业内容：
-{content[:8000]}  # 截断过长内容
-
-请按以下格式输出：
-**摘要**：用 1-2 句话概括这份作业的要求
-**题目分析**：列出每道题的要点和考察的知识点
-**参考答案**：给出解题思路或具体答案（如为编程题给出代码）
-**注意事项**：提醒易错点或提交注意
-
-如题目无法完全确定，请标注"根据已有信息推断"。
-"""
 
     try:
         if agent._is_anthropic_model(model):
@@ -150,6 +131,38 @@ def analyze_homework(course: str, assignment_name: str, content: str,
             return think_re.sub("", text).strip() or "[空响应]"
     except Exception as e:
         return f"[分析失败: {e}]"
+
+
+def solve_homework(course: str, assignment_name: str, content: str,
+                   brief: bool = False) -> str:
+    """让 LLM 实际解题并返回完整解答。brief=True 仅返回摘要。"""
+    content = _latex_to_unicode(content)
+
+    if brief:
+        prompt = f"""课程：{course}，作业：{assignment_name}
+{content[:6000]}
+
+请用 1-2 句话概括这份作业的要求。"""
+    else:
+        prompt = f"""你是一位学霸，请完整解答以下作业。要能被直接提交。
+
+课程：{course}
+作业名称：{assignment_name}
+
+{content[:8000]}
+
+要求：
+- 逐题解答，标清题号
+- 编程题给出完整可运行代码（含必要的 import 和注释）
+- 数学题给出分步推导和最终答案
+- 论述题给出结构化论点
+- 如题目信息不完整请标注推断依据
+- 用中文回答"""
+    return _call_llm(prompt)
+
+
+# 向后兼容
+analyze_homework = solve_homework
 
 
 def _fetch_pending() -> list[dict]:
@@ -180,8 +193,8 @@ def _filter_by_due(pending: list[dict], due_within_days: int) -> list[dict]:
     return filtered
 
 
-def _download_and_analyze_one(d: dict, idx: int) -> str:
-    """下载并分析单个作业。"""
+def _download_and_analyze_one(d: dict, idx: int, brief: bool = False) -> str:
+    """下载并解答单个作业。brief=True 仅返回摘要。"""
     course = d["course"]
     aname = d["name"]
     due_str = d["due"].strftime("%m月%d日 %H:%M") if hasattr(d["due"], 'strftime') else str(d["due"])
@@ -214,21 +227,21 @@ def _download_and_analyze_one(d: dict, idx: int) -> str:
             f"{content}"
         )
 
-    print(f"[homework] 分析: {course} - {aname}")
-    analysis = analyze_homework(course, aname, content)
+    print(f"[homework] 解题: {course} - {aname}")
+    solution = solve_homework(course, aname, content, brief=brief)
 
-    # 保存分析结果到本地 Markdown 文件
+    # 保存解答到本地 Markdown 文件
     try:
         hw_dir.mkdir(parents=True, exist_ok=True)
-        (hw_dir / "_分析结果.md").write_text(analysis, encoding="utf-8")
-        print(f"[homework] 已保存分析到 {hw_dir / '_分析结果.md'}")
+        (hw_dir / "_解答.md").write_text(solution, encoding="utf-8")
+        print(f"[homework] 已保存解答到 {hw_dir / '_解答.md'}")
     except Exception as e:
-        print(f"[homework] 保存分析失败: {e}")
+        print(f"[homework] 保存解答失败: {e}")
 
     return (
         f"[{idx}] {course} — {aname}\n"
         f"截止：{due_str}（{remaining}）\n\n"
-        f"{analysis}"
+        f"{solution}"
     )
 
 
@@ -250,7 +263,7 @@ def _format_list(pending: list[dict]) -> str:
 
 
 def run_homework_check(due_within_days: int = 0, specific_idx: int | None = None,
-                       list_only: bool = False) -> str:
+                       list_only: bool = False, brief: bool = False) -> str:
     """主入口：列出或分析 Canvas 作业。
 
     Args:
@@ -274,7 +287,7 @@ def run_homework_check(due_within_days: int = 0, specific_idx: int | None = None
     # 分析指定作业
     if specific_idx is not None:
         if 0 <= specific_idx < len(pending):
-            return _download_and_analyze_one(pending[specific_idx], specific_idx)
+            return _download_and_analyze_one(pending[specific_idx], specific_idx, brief=brief)
         return f"[homework] 无效序号：{specific_idx}，共 {len(pending)} 个（0~{len(pending)-1}）"
 
     # 默认：列出

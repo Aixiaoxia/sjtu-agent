@@ -793,7 +793,15 @@ def _handle_commands(open_id: str, text: str) -> str | None:
                     idx = int(parts[2])
                 except ValueError:
                     return f"无效序号：{parts[2]}"
-                return "[homework] 正在下载并分析作业…\n\n" + run_homework_check(specific_idx=idx)
+                return "[homework] 正在解题…\n\n" + run_homework_check(specific_idx=idx)
+            elif sub == "brief":
+                if len(parts) < 3:
+                    return "用法：/hw brief <序号>"
+                try:
+                    idx = int(parts[2])
+                except ValueError:
+                    return f"无效序号：{parts[2]}"
+                return "[homework] 正在获取摘要…\n\n" + run_homework_check(specific_idx=idx, brief=True)
             elif sub == "list":
                 return run_homework_check(list_only=True)
             elif sub == "due":
