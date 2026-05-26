@@ -806,6 +806,13 @@ def _handle_commands(open_id: str, text: str) -> str | None:
         return f"未知命令：{cmd}。输入 /help 查看可用命令。"
 
 
+def _process_hw_command(sender_open_id: str, message_id: str, text: str) -> None:
+    """后台执行 /hw 命令（网络 I/O + LLM，避免阻塞 event loop）。"""
+    result = _handle_commands(sender_open_id, text)
+    if result:
+        _reply_text(message_id, result)
+
+
 def _process_in_thread(sender_open_id: str, message_id: str, text: str) -> None:
     """Phase 2: 在后台线程中执行 LLM 推理 + 回复。"""
     conv, meta, lock = _get_active_conv(sender_open_id)
@@ -868,6 +875,13 @@ def _handle_message(data: P2ImMessageReceiveV1) -> None:
             return
 
         # ── 多对话命令拦截 ──────────────────────────────────────────
+        # /hw 系列是重命令（网络 I/O + LLM），放到后台线程避免阻塞 event loop
+        if text.strip().lower().startswith("/hw"):
+            print(f"[feishu] 命令（后台执行）: {text[:40]!r}")
+            _reply_text(message_id, "[homework] 正在处理，请稍候…")
+            _EXECUTOR.submit(_process_hw_command, sender_open_id, message_id, text)
+            return
+
         cmd_result = _handle_commands(sender_open_id, text)
         if cmd_result is not None:
             print(f"[feishu] 命令: {text[:40]!r}")
