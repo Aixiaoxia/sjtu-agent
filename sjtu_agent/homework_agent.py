@@ -156,18 +156,20 @@ def _generate_pdf_latex(title: str, md_text: str, output_path: Path, _latex_bin:
 \maketitle
 __BODY__
 \end{document}"""
-    # 简单转义
-    body = md_text.replace("\\", "\\textbackslash{}").replace("_", "\\_").replace("#", "\\#")
-    body = body.replace("&", "\\&").replace("%", "\\%").replace("{", "\\{").replace("}", "\\}")
-    # 恢复公式
-    for pat in [r"\$\$.*?\$\$", r"\$[^$]+\$"]:
-        for m in re.finditer(pat, md_text):
-            orig = m.group()
-            esc = orig.replace("\\", "\\textbackslash{}").replace("_", "\\_")
-            body = body.replace(esc, orig, 1)
-    # Markdown 加粗
-    body = re.sub(r"\*\*(.+?)\*\*", r"\\textbf{\1}", body)
-    body = re.sub(r"\*(.+?)\*", r"\\textit{\1}", body)
+    # 安全转义：保护 $$...$$ 公式块不转义，其他文本转义特殊字符
+    parts = re.split(r"(\$\$.*?\$\$|\$[^$]+\$)", md_text, flags=re.DOTALL)
+    escaped_parts = []
+    for part in parts:
+        if part.startswith("$"):  # 公式块，保留原样
+            escaped_parts.append(part)
+        else:  # 普通文本，转义 LaTeX 特殊字符
+            part = part.replace("\\", "\\textbackslash{}")
+            for ch in ["_", "#", "&", "%", "{", "}"]:
+                part = part.replace(ch, "\\" + ch)
+            part = re.sub(r"\*\*(.+?)\*\*", r"\\textbf{\1}", part)
+            part = re.sub(r"\*(.+?)\*", r"\\textit{\1}", part)
+            escaped_parts.append(part)
+    body = "".join(escaped_parts)
     tex = tex.replace("__TITLE__", title).replace("__BODY__", body)
 
     tmpdir = tempfile.mkdtemp()
@@ -502,6 +504,14 @@ def _download_and_analyze_one(d: dict, idx: int, brief: bool = False) -> str:
             f"截止：{due_str}（{remaining}）\n"
             f"{content}"
         )
+
+    # 清理前次运行产生的旧输出文件，防止 Claude Code 误读
+    for old in hw_dir.glob("_解答.*"):
+        try: old.unlink()
+        except Exception: pass
+    for old in hw_dir.glob("_code_*"):
+        try: old.unlink()
+        except Exception: pass
 
     print(f"[homework] 解题: {course} - {aname}")
     feishu_reply = _claude_code_solve(hw_dir, course, aname, content, brief=brief)
