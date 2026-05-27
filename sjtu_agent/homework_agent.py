@@ -104,18 +104,28 @@ def _extract_code_blocks(md_text: str) -> list[tuple[str, str]]:
 
 
 def _generate_pdf(title: str, md_text: str, output_path: Path) -> None:
-    """从 Markdown 文本生成 PDF（中文支持）。"""
+    """从 Markdown 文本生成 PDF。优先用 pdflatex，fallback 到 fpdf2。"""
+    # 优先尝试 pdflatex（LaTeX 公式完美渲染）
+    if shutil.which("pdflatex"):
+        _generate_pdf_latex(title, md_text, output_path)
+        if output_path.exists():
+            print(f"[homework] PDF (LaTeX) 已保存: {output_path}")
+            return
+        print("[homework] pdflatex 失败，回退 fpdf2")
+
+    # Fallback: fpdf2
     try:
         from fpdf import FPDF
-        pdf = FPDF()
+        pdf = FPDF(orientation="P", unit="mm", format="A4")
+        pdf.set_auto_page_break(auto=True, margin=15)
         pdf.add_page()
         font_path = "C:/Windows/Fonts/msyh.ttc"
         try:
             pdf.add_font("CJK", "", font_path, uni=True)
             pdf.add_font("CJK", "B", font_path, uni=True)
+            pdf.set_font("CJK", "", 11)
         except Exception:
-            pass
-        pdf.set_font("CJK", "", 11)
+            pdf.set_font("Courier", "", 10)
         pdf.set_font_size(14)
         pdf.multi_cell(0, 10, title)
         pdf.ln(5)
@@ -124,14 +134,53 @@ def _generate_pdf(title: str, md_text: str, output_path: Path) -> None:
         clean = re.sub(r"\*([^*]+)\*", r"\1", clean)
         clean = re.sub(r"`([^`]+)`", r"\1", clean)
         clean = re.sub(r"```.*?```", "[代码块]", clean, flags=re.DOTALL)
+        clean = re.sub(r"\$\$.*?\$\$", "[公式]", clean, flags=re.DOTALL)
+        clean = re.sub(r"\$[^$]+\$", "[公式]", clean)
         for line in clean.split("\n"):
-            if pdf.get_y() > 270:
-                pdf.add_page()
             pdf.multi_cell(0, 5, line or " ")
         pdf.output(str(output_path))
-        print(f"[homework] PDF 已保存: {output_path}")
+        print(f"[homework] PDF (fpdf2) 已保存: {output_path}")
     except Exception as e:
         print(f"[homework] PDF 生成失败: {e}")
+
+
+def _generate_pdf_latex(title: str, md_text: str, output_path: Path) -> None:
+    """使用 pdflatex 生成 PDF（完美支持 LaTeX 公式和中文）。"""
+    import subprocess, tempfile
+    tex = r"""\documentclass[12pt,a4paper]{ctexart}
+\usepackage{amsmath,amssymb}
+\usepackage{geometry}\geometry{margin=2.5cm}
+\title{__TITLE__}
+\begin{document}
+\maketitle
+__BODY__
+\end{document}"""
+    # 转义 LaTeX 特殊字符，保留公式
+    body = md_text.replace("\\", "\\textbackslash ").replace("_", "\\_").replace("#", "\\#")
+    body = body.replace("&", "\\&").replace("%", "\\%").replace("{", "\\{").replace("}", "\\}")
+    # 恢复公式中的转义（$$...$$ 和 $...$ 内的不转义）
+    for pat in [r"\$\$.*?\$\$", r"\$[^$]+\$"]:
+        for m in re.finditer(pat, md_text):
+            escaped = m.group().replace("\\", "\\textbackslash ").replace("_", "\\_")
+            body = body.replace(escaped, m.group() if "$$" in m.group() else m.group())
+    # 加粗
+    body = re.sub(r"\*\*(.+?)\*\*", r"\\textbf{\1}", body)
+    body = re.sub(r"\*(.+?)\*", r"\\textit{\1}", body)
+    tex = tex.replace("__TITLE__", title).replace("__BODY__", body)
+
+    tmpdir = tempfile.mkdtemp()
+    tex_path = Path(tmpdir) / "solution.tex"
+    tex_path.write_text(tex, encoding="utf-8")
+    for _ in range(2):  # 两次编译以生成目录/引用
+        subprocess.run(
+            ["pdflatex", "-interaction=nonstopmode", "-output-directory", tmpdir,
+             str(tex_path)],
+            capture_output=True, timeout=30,
+        )
+    pdf_src = Path(tmpdir) / "solution.pdf"
+    if pdf_src.exists():
+        import shutil as _sh
+        _sh.copy(str(pdf_src), str(output_path))
 
 
 def _generate_html(title: str, md_text: str, output_path: Path) -> None:
