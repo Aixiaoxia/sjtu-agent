@@ -114,8 +114,8 @@ def make_session(cookies: dict, referer: str = "") -> requests.Session:
 
 # ── Platform 1: Canvas LMS ────────────────────────────────────────────────────
 
-def fetch_canvas(cfg: dict) -> list[dict]:
-    """通过 Canvas REST API 获取近期必做作业。"""
+def fetch_canvas(cfg: dict, include_past: bool = False) -> list[dict]:
+    """通过 Canvas REST API 获取作业。include_past=True 时包含已过期的历史作业。"""
     token = cfg.get("canvas_token", "").strip()
     base = cfg.get("canvas_base_url", "https://oc.sjtu.edu.cn").rstrip("/")
     if not token or token.startswith("YOUR_"):
@@ -163,7 +163,7 @@ def fetch_canvas(cfg: dict) -> list[dict]:
                 if a.get("workflow_state") == "deleted":
                     continue
                 due = parse_dt(a.get("due_at", ""))
-                if not due or due < datetime.now(CST):
+                if not include_past and (not due or due < datetime.now(CST)):
                     continue
                 pending.append({"id": a["id"], "name": a.get("name", "未知作业"), "due": due})
             asgn_url = r.links.get("next", {}).get("url")

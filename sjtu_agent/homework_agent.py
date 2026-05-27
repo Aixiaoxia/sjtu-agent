@@ -228,11 +228,14 @@ def solve_homework(course: str, assignment_name: str, content: str,
 analyze_homework = solve_homework
 
 
-def _fetch_pending() -> list[dict]:
-    """获取所有未提交的 Canvas 作业。"""
+def _fetch_pending(include_past: bool = False) -> list[dict]:
+    """获取 Canvas 作业。include_past=True 时包含已过期的历史作业。"""
     import ddl_checker as dc
     cfg = dc.load_config()
-    ddls = dc.fetch_canvas(cfg)
+    ddls = dc.fetch_canvas(cfg, include_past=include_past)
+    if include_past:
+        print(f"[homework] Canvas 共 {len(ddls)} 个作业（含历史）")
+        return ddls
     pending = [d for d in ddls if not d.get("submitted")]
     print(f"[homework] Canvas 共 {len(ddls)} 个作业，{len(pending)} 个未提交")
     return pending
@@ -416,15 +419,10 @@ def _format_list(pending: list[dict]) -> str:
 
 
 def run_homework_check(due_within_days: int = 0, specific_idx: int | None = None,
-                       list_only: bool = False, brief: bool = False) -> str:
-    """主入口：列出或分析 Canvas 作业。
-
-    Args:
-        due_within_days: 过滤 N 天内到期（0=不限）
-        specific_idx: 分析指定序号（0-based）
-        list_only: 仅列出，不下载分析
-    """
-    pending = _fetch_pending()
+                       list_only: bool = False, brief: bool = False,
+                       include_past: bool = False) -> str:
+    """主入口：列出或分析 Canvas 作业。include_past=True 时包含历史作业。"""
+    pending = _fetch_pending(include_past=include_past)
     if due_within_days > 0:
         pending = _filter_by_due(pending, due_within_days)
         print(f"[homework] 过滤后 {len(pending)} 个 {due_within_days} 天内到期")
