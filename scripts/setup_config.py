@@ -40,13 +40,15 @@ DOMAINS = {
 
 
 def load_chrome_cookies(domain: str) -> dict[str, str]:
-    """从 Chrome 本地数据库读取指定域名的所有 cookie。"""
-    try:
-        jar = browser_cookie3.chrome(domain_name=domain)
-        return {c.name: c.value for c in jar}
-    except Exception as e:
-        print(f"  [警告] 读取 {domain} cookie 失败：{e}")
-        return {}
+    """从 Chrome / Edge 本地数据库读取指定域名的所有 cookie。"""
+    for browser_fn, browser_name in [(browser_cookie3.chrome, "Chrome"), (browser_cookie3.edge, "Edge")]:
+        try:
+            jar = browser_fn(domain_name=domain)
+            return {c.name: c.value for c in jar}
+        except Exception:
+            continue
+    print(f"  [警告] 从 Chrome / Edge 读取 {domain} cookie 均失败")
+    return {}
 
 
 def filter_cookies(all_cookies: dict, wanted_keys: list[str]) -> dict[str, str]:
