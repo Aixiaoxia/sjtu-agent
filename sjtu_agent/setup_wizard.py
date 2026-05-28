@@ -57,7 +57,7 @@ def _dependency_checks() -> tuple[list[dict[str, object]], list[str]]:
     checks = [
         ("playwright", "playwright.sync_api", "browser automation", True),
         ("python-dotenv", "dotenv", "load .env credentials", True),
-        ("browser-cookie3", "browser_cookie3", "import cookies from Chrome/Edge", False),
+        ("browser-cookie3", "browser_cookie3", "import cookies from Chrome", False),
     ]
 
     results: list[dict[str, object]] = []
@@ -319,7 +319,7 @@ def _maybe_import_browser_cookies(args: argparse.Namespace, status: dict) -> boo
         return False
 
     default = _needs_cookie_import(status)
-    if not _confirm("Import platform cookies from local browser (Chrome/Edge) now?", default, args.assume_yes):
+    if not _confirm("Import platform cookies from local Chrome now?", default, args.assume_yes):
         return False
     return _import_browser_cookies()
 
@@ -358,7 +358,7 @@ def _build_recommendations(status: dict) -> list[str]:
                 f"Generate a Canvas token at {status['canvas']['settings_url']} and save it with sjtu-agent setup."
             )
     if not status["aihaoke"]["has_cookies"] or not status["phycai"]["has_cookies"] or not status["icourse"]["has_cookies"]:
-        recommendations.append("Log into the teaching sites in Chrome/Edge, then rerun sjtu-agent setup or sjtu-agent setup-config.")
+        recommendations.append("Log into the teaching sites in Chrome, then rerun sjtu-agent setup or sjtu-agent setup-config.")
     if not (status["shuiyuan"]["has_api_key"] or status["shuiyuan"]["has_cookies"]):
         recommendations.append("Optional: set up Shuiyuan later from the chat agent if you need forum search.")
     return recommendations
@@ -618,7 +618,7 @@ class SetupConversation:
         text = raw.strip().lower()
         paths = describe_runtime_paths()
         if "cookie" in text or "chrome" in text or "登录" in text:
-            return "我会从本机浏览器（Chrome/Edge）里读取你已经登录过的 AI 好课（aihaoke）、物理实验（phycai）、中国大学 MOOC（icourse）cookie，然后写进 config.json。你不用手工拷贝 cookie 值。"
+            return "我会从本机 Chrome 里读取你已经登录过的 AI 好课（aihaoke）、物理实验（phycai）、中国大学 MOOC（icourse）cookie，然后写进 config.json。你不用手工拷贝 cookie 值。"
         if "llm" in text or "模型" in text or "api key" in text or "base url" in text:
             return (
                 "我会先把驱动 Agent 的大模型接口写进 agent_config.json。"
@@ -635,7 +635,7 @@ class SetupConversation:
                 "我会尽量缩短步骤：帮你打开页，必要时再让你粘贴 token。"
             )
         if "playwright" in text or "chromium" in text or "浏览器自动化" in text:
-            return "Playwright Chromium 用于自动登录、刷新 cookie 和网页抓取。这不会替代你平时使用的浏览器，只是给 agent 一个可控的浏览器执行环境。"
+            return "Playwright Chromium 用于自动登录、刷新 cookie 和网页抓取。这不会替代你平时使用的 Chrome，只是给 agent 一个可控的浏览器执行环境。"
         if "launchd" in text or "后台" in text or "自动启动" in text or "telegram" in text:
             return "launchd 是 macOS 的后台任务系统。我会把日报、提醒检查和 Telegram bot 安装成用户级 LaunchAgent，方便开机后自动运行。"
         if "文件" in text or "保存" in text or "目录" in text or "在哪里" in text:
@@ -648,7 +648,7 @@ class SetupConversation:
         if step == "mooc":
             return "MOOC 账号密码只影响 icourse/中国大学 MOOC 这一路。如果你暂时不用这个平台，可以先跳过。"
         if step == "cookies":
-            return "cookie 导入会优先补齐 AI 好课（aihaoke）、物理实验（phycai）、中国大学 MOOC（icourse）的现有登录态。如果你还没在浏览器里登录这些站点，先登录再回来导入最省事。"
+            return "cookie 导入会优先补齐 AI 好课（aihaoke）、物理实验（phycai）、中国大学 MOOC（icourse）的现有登录态。如果你还没在 Chrome 里登录这些站点，先登录再回来导入最省事。"
         if step == "launchd":
             return "这一步只是在 macOS 里登记后台服务，不会修改你的课程数据。以后你也可以随时重跑 setup 或 install-daemons 来更新它。"
         return "这一步的目标是把缺的配置补齐。你可以直接继续、跳过，或者输入 status 查看我当前检测到的缺口。"
@@ -944,8 +944,8 @@ class SetupConversation:
         if not status["icourse"]["has_cookies"]:
             missing.append("中国大学 MOOC")
         missing_text = ", ".join(missing) if missing else "课程平台"
-        self.say(f"我还缺这些站点的登录态：{missing_text}。如果你已经在浏览器里登录过，我现在可以自动导入。")
-        self.say("准备好了就回复继续；如果你想稍后自己登录浏览器再回来，回复 skip。")
+        self.say(f"我还缺这些站点的登录态：{missing_text}。如果你已经在 Chrome 里登录过，我现在可以自动导入。")
+        self.say("准备好了就回复继续；如果你想稍后自己登录 Chrome 再回来，回复 skip。")
         while True:
             raw = self.prompt()
             intent = self.handle_common(raw, "cookies", status)
@@ -1119,7 +1119,7 @@ def register_setup_parser(subparsers: argparse._SubParsersAction[argparse.Argume
     parser.add_argument(
         "--skip-cookie-import",
         action="store_true",
-        help="skip importing cookies from local browser (Chrome/Edge)",
+        help="skip importing cookies from local Chrome",
     )
     parser.add_argument(
         "--skip-credential-prompts",

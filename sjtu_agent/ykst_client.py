@@ -39,18 +39,13 @@ RATE_HATE = -1
 RATE_LIKE = 1
 
 
-def _find_browser() -> str | None:
-    env_path = os.environ.get("CHROME_PATH")  # keep for backward compat
-    if env_path and Path(env_path).exists():
-        return env_path
+def _find_chrome() -> str | None:
+    env_chrome = os.environ.get("CHROME_PATH")
+    if env_chrome and Path(env_chrome).exists():
+        return env_chrome
 
     if sys.platform == "win32":
         candidates = [
-            # Edge first (default on this machine)
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Microsoft\Edge\Application\msedge.exe"),
-            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-            # Chrome as fallback
             r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
             os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Google\Chrome\Application\chrome.exe"),
@@ -59,12 +54,10 @@ def _find_browser() -> str | None:
         ]
     elif sys.platform == "darwin":
         candidates = [
-            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         ]
     else:
         candidates = [
-            "microsoft-edge",
             "google-chrome",
             "google-chrome-stable",
             "chromium",
@@ -75,16 +68,12 @@ def _find_browser() -> str | None:
         if c and Path(c).exists():
             return c
 
-    for name in ["microsoft-edge", "google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"]:
+    for name in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"]:
         found = shutil.which(name)
         if found:
             return found
 
     return None
-
-
-# backward compat alias
-_find_chrome = _find_browser
 
 
 def _free_port() -> int:
@@ -719,9 +708,9 @@ def login_with_browser_watch(
     redirect_uri: str = DEFAULT_REDIRECT_URI,
     timeout_ms: int = 180000,
 ) -> dict:
-    browser = _find_browser()
-    if not browser:
-        raise YKSTError("未找到 Chromium 浏览器（Edge/Chrome），请设置 CHROME_PATH 环境变量后重试，或使用手动流程。")
+    chrome = _find_chrome()
+    if not chrome:
+        raise YKSTError("未找到 Chrome 浏览器，请设置 CHROME_PATH 环境变量后重试，或使用手动流程。")
 
     info = get_login_url(redirect_uri)
     login_url = info["loginUrl"]
@@ -736,7 +725,7 @@ def login_with_browser_watch(
 
     proc = subprocess.Popen(
         [
-            browser,
+            chrome,
             f"--user-data-dir={profile}",
             f"--remote-debugging-port={port}",
             "--new-window",
